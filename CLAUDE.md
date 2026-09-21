@@ -101,7 +101,7 @@ Self-contained and independent of the MotherDuck path: `documents.py` builds con
 
 ## Progress log
 
-[PROGRESS.md](PROGRESS.md) is the cross-session memory for this repo (there's no git history to fall back on — see below). Read its "Current state" section at the start of a session, and update it — in place for state, appended for the session log — before finishing significant work.
+[PROGRESS.md](PROGRESS.md) is the cross-session memory for this repo. Read its "Current state" section at the start of a session, and update it — in place for state, appended for the session log — before finishing significant work. Prefer it over `git log` for *why* something changed; git history is authoritative for *what* changed and when, starting from the initial commit (2026-09-21) onward — this repo had no version control before that commit, so anything dated earlier only exists as prose in `docs/` and `PROGRESS.md`.
 
 A `Stop` hook ([.claude/settings.json](.claude/settings.json)) enforces this: if any file changed more recently than `PROGRESS.md`, it blocks once with a reminder before letting the turn end. It fires at most once per turn (guarded by `stop_hook_active`) — if the change genuinely didn't warrant a log entry, say so and stop again.
 
@@ -110,5 +110,3 @@ A `Stop` hook ([.claude/settings.json](.claude/settings.json)) enforces this: if
 This repo follows the Superpowers skill pipeline (see [AGENTS.md](AGENTS.md)): `$brainstorming` → `$writing-plans` → `$using-git-worktrees` → `$subagent-driven-development` → `$test-driven-development` → `$requesting-code-review` → `$verification-before-completion` → `$finishing-a-development-branch`. Iron laws: no production code without a failing test first; no fixes without root-cause investigation; no completion claims without freshly rerunning verification. Use the smallest workflow that fits — the full pipeline is for architectural work, not one-file maintenance changes.
 
 Design decisions and specs are recorded under `docs/architecture/` and `docs/superpowers/{plans,specs}/`, dated `YYYY-MM-DD-*.md` — check there before re-deriving a rationale that may already be written down.
-
-Note: this directory is not currently a git repository.

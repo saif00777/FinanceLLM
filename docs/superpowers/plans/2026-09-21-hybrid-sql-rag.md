@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- This repository is **not a git repository** (confirmed; no `.git` directory). Every task below ends with a "Checkpoint" step instead of a git commit — there is nothing to commit to. If this changes before you implement (someone runs `git init`), you may `git add` and `git commit` at each checkpoint instead, but do not assume git is available.
+- This repository now has git history, starting from an initial baseline commit made 2026-09-21 (it had none before). Every task below ends with a real "Commit" step — commit only the files that task touched, not a blanket `git add -A`.
 - Test runner: `./.venv/Scripts/python.exe -m unittest <module> -v` (Windows venv; the path works from both PowerShell and the Bash tool in this environment). Full suite: `./.venv/Scripts/python.exe -m unittest discover -s tests -v`. Eval gate: `./.venv/Scripts/python.exe scripts/run_evals.py`.
 - No task may touch the MotherDuck credential, add rate limiting, or add a kill switch — explicitly out of scope per the spec.
 - No task may make a live OpenAI, MotherDuck, Supabase, or Qdrant call from a test. Every existing test in this repo uses fakes; follow that pattern exactly (see `tests/test_workflow.py`'s `FakeSpecialists`/`FakeRunner`/`FakeComplaintRetriever` and `tests/test_production_specialists.py`'s `FakeResponses`).
@@ -143,9 +143,12 @@ Expected: PASS, 3/3 (the 2 new tests plus the pre-existing one).
 Run: `./.venv/Scripts/python.exe -m unittest discover -s tests -v`
 Expected: all tests pass (94 pre-existing + 2 new = 96). The `DomainDecision("in_scope", "allowed")` two-positional-arg calls in `tests/test_workflow.py` must still work unchanged because of the new field's default.
 
-- [ ] **Step 7: Checkpoint**
+- [ ] **Step 7: Commit**
 
-Mark this task's checkboxes done in this plan file. (No git repository in this project — see Global Constraints.)
+```bash
+git add app/agents/text_to_sql/specialists.py tests/test_production_specialists.py
+git commit -m "feat: add sources classification to DomainDecision"
+```
 
 ---
 
@@ -596,9 +599,12 @@ Expected: all pass — 96 (end of Task 1) + 3 new tests from this task = 99 tota
 Run: `./.venv/Scripts/python.exe scripts/run_evals.py`
 Expected: `Passed 17/17 deterministic evaluation cases.` (unchanged — this task doesn't touch `evals/`, that's Task 3).
 
-- [ ] **Step 18: Checkpoint**
+- [ ] **Step 18: Commit**
 
-Mark this task's checkboxes done in this plan file. (No git repository — see Global Constraints.)
+```bash
+git add app/agents/text_to_sql/workflow.py tests/test_workflow.py
+git commit -m "feat: sequential source-aware routing, per-branch state keys, and merge_results node"
+```
 
 ---
 
@@ -692,9 +698,12 @@ If it fails on the new `graph-hybrid` case specifically, the most likely cause i
 Run: `./.venv/Scripts/python.exe -m unittest discover -s tests -v`
 Expected: all pass, 99/99.
 
-- [ ] **Step 8: Checkpoint**
+- [ ] **Step 8: Commit**
 
-Mark this task's checkboxes done in this plan file. (No git repository — see Global Constraints.)
+```bash
+git add evals/graph_paths.json tests/test_evaluations.py
+git commit -m "test: add hybrid graph_paths eval case and update fixture count"
+```
 
 ---
 

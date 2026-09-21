@@ -1,6 +1,6 @@
 # PROGRESS.md
 
-Running progress log and cross-session memory for this repository. This directory is **not** a git repository, so there is no commit history or blame to reconstruct context from — this file is the durable record. Read it at the start of a session before starting work; update it before ending one.
+Running progress log and cross-session memory for this repository. Git history now exists starting from the initial commit (2026-09-21) — prefer `git log`/`git blame` for *what* changed and when from that point on; everything dated before that commit predates version control and exists only as prose here and in `docs/`. Either way, this file is still the durable record of *why* — motivation, decisions, and in-flight state rarely survive in commit messages alone. Read it at the start of a session before starting work; update it before ending one.
 
 **How to use this file**
 
