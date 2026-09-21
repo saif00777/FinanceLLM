@@ -13,6 +13,7 @@ from app.agents.text_to_sql.contracts import LinkedContext
 class DomainDecision:
     route: str
     reason_code: str
+    sources: tuple[str, ...] = ("sql",)
 
 
 @dataclass(frozen=True)
@@ -100,9 +101,26 @@ class OpenAIResponsesSpecialists:
             return []
         return [str(item).strip() for item in value if str(item).strip()][:maximum]
 
+    _VALID_SOURCES = frozenset({"sql", "rag"})
+
     def domain_guard(self, question: str, facts: dict[str, str]) -> DomainDecision:
-        data = self._json("Return JSON with route and reason_code. Use in_scope, clarify, or abstain.", {"question": question, "facts": facts})
-        return DomainDecision(route=data.get("route", "clarify"), reason_code=data.get("reason_code", "unclear_request"))
+        data = self._json(
+            "Return JSON with route, reason_code, and sources. Use in_scope, clarify, or abstain for route. "
+            "sources is an array containing sql and/or rag, for whether the question needs financial-transaction "
+            "analysis, consumer-complaint narratives, or both.",
+            {"question": question, "facts": facts},
+        )
+        raw_sources = data.get("sources")
+        valid_sources = (
+            tuple(dict.fromkeys(item for item in raw_sources if item in self._VALID_SOURCES))
+            if isinstance(raw_sources, list)
+            else ()
+        )
+        return DomainDecision(
+            route=data.get("route", "clarify"),
+            reason_code=data.get("reason_code", "unclear_request"),
+            sources=valid_sources or ("sql",),
+        )
 
     def plan(self, question: str, facts: dict[str, str]) -> TaskPlan:
         data = self._json("Return JSON with intent and rationale for a safe aggregate financial analysis. Do not write SQL.", {"question": question, "facts": facts})
