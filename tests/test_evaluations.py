@@ -25,7 +25,7 @@ class EvaluationTests(unittest.TestCase):
 
     def test_public_fixture_baseline_is_versioned_and_representative(self):
         cases = load_evaluation_cases(CASES)
-        self.assertEqual(len(cases), 17)
+        self.assertEqual(len(cases), 18)
         self.assertEqual(
             {case["suite"] for case in cases},
             {"adversarial_safety", "domain_guard", "graph_paths", "grounding", "multi_turn", "rag_safety", "suggested_questions"},
@@ -69,7 +69,7 @@ class EvaluationTests(unittest.TestCase):
             [sys.executable, "scripts/run_evals.py"], cwd=ROOT, capture_output=True, text=True, check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Passed 17/17 deterministic evaluation cases.", result.stdout)
+        self.assertIn("Passed 18/18 deterministic evaluation cases.", result.stdout)
 
 
 if __name__ == "__main__":
