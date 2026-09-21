@@ -327,9 +327,12 @@ class MultiAgentWorkflow:
         rag_route = state.get("rag_route")
         parts = []
         if sql_route is not None:
-            parts.append(state["sql_answer"])
+            sql_answer = state.get("sql_answer")
+            if sql_answer:
+                parts.append(sql_answer)
         if rag_route is not None:
-            parts.append(f"Consumer complaint narratives found: {state['rag_message']}")
+            rag_message = state["rag_message"]
+            parts.append(f"Consumer complaint narratives found: {rag_message}" if sql_route is not None else rag_message)
         route = "answered" if "answered" in (sql_route, rag_route) else (sql_route or rag_route)
         return {"answer": "\n\n".join(parts), "route": route}
 
