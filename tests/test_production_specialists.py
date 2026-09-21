@@ -55,6 +55,15 @@ class ProductionSpecialistTests(unittest.TestCase):
 
         self.assertEqual(decision.sources, ("sql",))
 
+    def test_domain_guard_defaults_sources_to_sql_when_key_is_missing(self):
+        responses = FakeDomainGuardResponses({"route": "in_scope", "reason_code": "allowed"})
+        client = type("Client", (), {"responses": responses})()
+        specialist = OpenAIResponsesSpecialists(client, "demo-model", object())
+
+        decision = specialist.domain_guard("Total spending", {})
+
+        self.assertEqual(decision.sources, ("sql",))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,11 +2,11 @@
 
 These fixtures are release-gate inputs for the student demo. They are public, redacted, versioned by `semantic_version` and `graph_version`, and contain no credentials, raw SQL, raw database rows, or complaint narratives.
 
-The baseline has 17 representative cases:
+The baseline has 18 representative cases:
 
 | Fixture | Cases | Coverage |
 | --- | ---: | --- |
-| `graph_paths.json` | 3 | Route, execution/repair budgets, specialist sequence, suggestions, and result digest |
+| `graph_paths.json` | 4 | Route, execution/repair budgets, specialist sequence, suggestions, and result digest |
 | `domain_guard.json` | 3 | In-scope, sensitive, and unclear requests |
 | `suggested_questions.json` | 2 | Approved semantic follow-ups and safe blocked-route suggestions |
 | `adversarial_safety.json` | 3 | DDL, credential, and file-access prompts |

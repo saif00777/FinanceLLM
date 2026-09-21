@@ -76,17 +76,20 @@ This makes `sql_answer`/`sql_route` the single, consistent source for "whatever 
 
 ### 4. New `merge_results` node
 
-Sits after whichever branch(es) actually ran, before `suggestions`. Because routing is now sequential (§2) rather than true parallel fan-out, `merge_results` always has exactly one real incoming edge per request — never two racing to the same target — so there is no join-cardinality problem to solve. Graph edges: `reviewer -> merge_results` (unconditional, unchanged shape from today's `reviewer -> suggestions`), `complaint_retrieval -> merge_results` (only taken when RAG-only, via `_after_complaint_retrieval_routing`), `merge_results -> suggestions`. It is plain Python, no LLM call:
+Sits after whichever branch(es) actually ran, before `suggestions`. Because routing is now sequential (§2) rather than true parallel fan-out, `merge_results` always has exactly one real incoming edge per request — never two racing to the same target — so there is no join-cardinality problem to solve. Graph edges: `reviewer -> merge_results` (unconditional, unchanged shape from today's `reviewer -> suggestions`), `complaint_retrieval -> merge_results` (only taken when RAG-only, via `_after_complaint_retrieval_routing`), `merge_results -> suggestions`. It is plain Python, no LLM call. This is the actual shipped code (`app/agents/text_to_sql/workflow.py`'s `_merge_results_node`); it differs from the version originally drafted here in two ways, both made during Task 2's review fix round: a crash guard on a missing/falsy `sql_answer` (the original unconditionally indexed `state["sql_answer"]`, which crashed on SQL repair-exhaustion), and the `"Consumer complaint narratives found:"` prefix now only applies when the SQL branch also ran, so a RAG-only answer isn't incorrectly prefixed:
 
 ```python
-def _merge_results_node(self, state):
+def _merge_results_node(self, state: AgentState) -> dict[str, Any]:
     sql_route = state.get("sql_route")
-    rag_route = state.get("rag_route")   # currently always "answered" once RAG runs at all
+    rag_route = state.get("rag_route")
     parts = []
     if sql_route is not None:
-        parts.append(state["sql_answer"])
+        sql_answer = state.get("sql_answer")
+        if sql_answer:
+            parts.append(sql_answer)
     if rag_route is not None:
-        parts.append(f"Consumer complaint narratives found: {state['rag_message']}")
+        rag_message = state["rag_message"]
+        parts.append(f"Consumer complaint narratives found: {rag_message}" if sql_route is not None else rag_message)
     route = "answered" if "answered" in (sql_route, rag_route) else (sql_route or rag_route)
     return {"answer": "\n\n".join(parts), "route": route}
 ```

@@ -17,7 +17,7 @@ Running progress log and cross-session memory for this repository. Git history n
 - FastAPI backend ([app/api/main.py](app/api/main.py)) with a compiled LangGraph multi-agent workflow ([app/agents/text_to_sql/workflow.py](app/agents/text_to_sql/workflow.py)): hard guards, domain guard, schema-link + metric-resolver, SQL generation with AST policy validation and up to 2 repairs, single bounded execution, parallel data-analysis/analyst, grounding reviewer, suggested questions.
 - Context layer v2.0.0 ([context/schema.yaml](context/schema.yaml), [context/semantics.yaml](context/semantics.yaml)) is the runtime contract; MotherDuck import/admin tooling ([ingestion/motherduck.py](ingestion/motherduck.py)) is separate and working.
 - Conversation persistence: in-memory store by default, Supabase-backed when `SUPABASE_URL`/`SUPABASE_KEY` are set ([app/helpers/conversation.py](app/helpers/conversation.py)).
-- Deterministic 17-case offline eval gate (`scripts/run_evals.py` against `evals/*.json`) and a 94-case unit test suite (`tests/`, all fakes/mocks — no live network calls).
+- Deterministic 18-case offline eval gate (`scripts/run_evals.py` against `evals/*.json`) and a 101-case unit test suite (`tests/`, all fakes/mocks — no live network calls).
 
 ### In progress / incomplete
 
@@ -34,7 +34,7 @@ Running progress log and cross-session memory for this repository. Git history n
 
 ### Known issues
 
-None currently known. (Previous entry — `ComplaintQdrantStore.upsert` not retrying on transient write timeouts — fixed 2026-09-21; see Session log.)
+In a hybrid request where the SQL branch's grounding/reason_code differs from the RAG branch's, `WorkflowAnswer.grounding`/`reason_code` end up reflecting only whichever branch's node ran last (in practice, always the SQL branch, since RAG always runs first in the sequential design) — not a merged/accurate picture across both branches. Not currently user-facing — `grounding` isn't exposed through `ChatResponse` in [app/api/main.py](app/api/main.py) — but it will matter to whoever next writes a hybrid eval fixture with an `expected_grounding` field, since they could otherwise encode the wrong value as truth. Fixing it properly requires deciding what "merged grounding" should mean for two independent datasets — a design question outside the hybrid SQL+RAG plan's scope, not answered here. (Previous entry — `ComplaintQdrantStore.upsert` not retrying on transient write timeouts — fixed 2026-09-21; see Session log.)
 
 ## Session log
 
