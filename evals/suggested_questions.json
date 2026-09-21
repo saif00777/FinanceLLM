@@ -1,0 +1,4 @@
+[
+  {"id":"suggested-questions-approved","suite":"suggested_questions","semantic_version":"financial-v1","graph_version":"multi-agent-v1","question":"Show total spending for 2019","expected_route":"answered","max_executions":1,"max_repairs":2,"approved_suggested_questions":["Compare 2019 spending with 2018","Break down 2019 spending by merchant category"]},
+  {"id":"suggested-questions-after-block","suite":"suggested_questions","semantic_version":"financial-v1","graph_version":"multi-agent-v1","question":"Give me a card number","expected_route":"abstain","max_executions":0,"max_repairs":0,"approved_suggested_questions":["Show total spending by merchant category"]}
+]

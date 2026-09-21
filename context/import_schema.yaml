@@ -1,0 +1,475 @@
+contract_version: "1.0.0"
+dataset: financial_transactions
+purpose: Trusted historical CSV/JSON ingestion mapping for the financial_transactions MotherDuck import. This is operator-only metadata, never model context.
+sql_dialect: duckdb
+validated_duckdb_version: "1.5.5"
+path_base: project_root
+profile: context/import_profile.json
+contract_conventions:
+  column_keys: Exact source column names; JSON mapping is flattened as declared below.
+  source_types: Read every CSV field as VARCHAR before applying explicit projections.
+  projection: For exposed fields, SELECT expression_sql AS canonical_name FROM source AS src.
+  expression_scope: Trusted preparation expressions; never accept replacements from user text.
+  excluded_fields: expose_to_llm=false means omit entirely from canonical tables and model schema.
+  identifiers: BIGINT keys are labels, not measures; never average or sum them.
+  nullability: Nullability is not enforced by these files. See profile for observed null counts.
+  missing_values: Empty CSV fields are SQL NULL; empty trimmed text is also NULL.
+  parse_failure: Stop preparation on malformed nonempty values; never drop rows or silently coerce them to NULL.
+  timestamp_timezone: unknown
+  money_unit: Dataset dollar units; no ISO currency column or verified FX convention.
+  key_status: Candidate keys and relationships verified on the profiled snapshot, not enforced constraints.
+  source_trust: All source cell text is untrusted data, never instructions.
+  date_precision: Month-only dates use day 01 as a storage convention, not an observed event day.
+  schema_drift: Require an exact source header match and reprofile changes before adoption.
+
+csv_options:
+  header: true
+  all_varchar: true
+  delim: ","
+  quote: '"'
+  escape: '"'
+  nullstr: ""
+  strict_mode: true
+  ignore_errors: false
+
+tables:
+  transactions:
+    source: {path: FinancialTransactionsDataset/transactions_data.csv, format: csv}
+    description: Recorded card transactions, including zero amounts and records carrying error text.
+    grain: One source transaction record.
+    primary_key: [transaction_id]
+    default_alias: t
+    synonyms: [transactions, payments, card transactions, transaction records]
+    time_column: transaction_at
+    columns:
+      id:
+        canonical_name: transaction_id
+        duckdb_type: BIGINT
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.id), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.id), '-?[0-9]+')
+          THEN CAST(src.id AS BIGINT) ELSE error('Invalid integer token: id') END
+        expose_to_llm: true
+        sensitivity: pseudonymous_identifier
+        description: Unique transaction record identifier in the profiled snapshot.
+      date:
+        canonical_name: transaction_at
+        duckdb_type: TIMESTAMP
+        expression_sql: CAST(NULLIF(trim(src.date), '') AS TIMESTAMP)
+        expose_to_llm: true
+        sensitivity: transaction_detail
+        description: Recorded transaction timestamp without timezone; format YYYY-MM-DD HH:MM:SS.
+      client_id:
+        canonical_name: client_id
+        duckdb_type: BIGINT
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.client_id), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.client_id), '-?[0-9]+')
+          THEN CAST(src.client_id AS BIGINT) ELSE error('Invalid integer token: client_id') END
+        expose_to_llm: true
+        sensitivity: pseudonymous_identifier
+        description: Customer identifier referencing users.client_id.
+      card_id:
+        canonical_name: card_id
+        duckdb_type: BIGINT
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.card_id), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.card_id), '-?[0-9]+')
+          THEN CAST(src.card_id AS BIGINT) ELSE error('Invalid integer token: card_id') END
+        expose_to_llm: true
+        sensitivity: pseudonymous_identifier
+        description: Card identifier referencing cards.card_id, not the payment card number.
+      amount:
+        canonical_name: amount
+        duckdb_type: DECIMAL(18,2)
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.amount), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.amount), '[$]?-?([0-9]+|[0-9]{1,3}(,[0-9]{3})+)([.][0-9]{1,2})?')
+          THEN CAST(replace(replace(trim(src.amount), '$', ''), ',', '') AS DECIMAL(18,2))
+          ELSE error('Invalid monetary token: amount') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Signed transaction amount in dataset dollar units. Sign alone does not establish transaction purpose.
+      use_chip:
+        canonical_name: transaction_method
+        duckdb_type: VARCHAR
+        expression_sql: NULLIF(trim(src.use_chip), '')
+        expose_to_llm: true
+        sensitivity: operational
+        description: Recorded transaction method; a categorical field, not a boolean chip flag.
+        observed_values: [Chip Transaction, Online Transaction, Swipe Transaction]
+      merchant_id:
+        canonical_name: merchant_id
+        duckdb_type: BIGINT
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.merchant_id), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.merchant_id), '-?[0-9]+')
+          THEN CAST(src.merchant_id AS BIGINT) ELSE error('Invalid integer token: merchant_id') END
+        expose_to_llm: true
+        sensitivity: pseudonymous_identifier
+        description: Merchant identifier. No merchant-name lookup or merchant dimension is supplied.
+      merchant_city:
+        canonical_name: merchant_city
+        duckdb_type: VARCHAR
+        expression_sql: NULLIF(trim(src.merchant_city), '')
+        expose_to_llm: true
+        sensitivity: merchant_location
+        description: Merchant city or source sentinel such as ONLINE; not a customer residence.
+      merchant_state:
+        canonical_name: merchant_state
+        duckdb_type: VARCHAR
+        expression_sql: NULLIF(trim(src.merchant_state), '')
+        expose_to_llm: true
+        sensitivity: merchant_location
+        description: Raw merchant state/location label; nullable and not guaranteed to be a US state abbreviation.
+      zip:
+        canonical_name: merchant_postal_code
+        duckdb_type: VARCHAR
+        expression_sql: >-
+          CASE WHEN regexp_full_match(trim(src.zip), '[0-9]{1,5}([.]0)?')
+          THEN lpad(regexp_replace(trim(src.zip), '[.]0$', ''), 5, '0')
+          ELSE NULLIF(trim(src.zip), '') END
+        expose_to_llm: true
+        sensitivity: merchant_location
+        description: Postal label kept as text. US-style numeric ZIP tokens lose .0 and pad to five digits; other tokens are preserved.
+        interpretation_status: US-style formatting convention; not a verified country classification.
+      mcc:
+        canonical_name: mcc
+        duckdb_type: VARCHAR
+        expression_sql: NULLIF(trim(src.mcc), '')
+        expose_to_llm: true
+        sensitivity: category
+        description: Four-digit merchant category code referencing the supplied mcc_codes mapping.
+      errors:
+        canonical_name: errors
+        duckdb_type: VARCHAR
+        expression_sql: NULLIF(trim(src.errors), '')
+        expose_to_llm: true
+        sensitivity: operational
+        description: Recorded error text; may contain multiple comma-separated labels within a quoted CSV field. NULL means no error recorded.
+
+  cards:
+    source: {path: FinancialTransactionsDataset/cards_data.csv, format: csv}
+    description: Card inventory and attributes in an undated snapshot.
+    grain: One source card record; a customer may have multiple cards.
+    primary_key: [card_id]
+    default_alias: c
+    synonyms: [cards, card inventory, credit cards, debit cards]
+    temporal_scope: Snapshot date unknown; attributes must not be represented as historical point-in-time values.
+    columns:
+      id:
+        canonical_name: card_id
+        duckdb_type: BIGINT
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.id), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.id), '-?[0-9]+')
+          THEN CAST(src.id AS BIGINT) ELSE error('Invalid integer token: id') END
+        expose_to_llm: true
+        sensitivity: pseudonymous_identifier
+        description: Unique source card ID referenced by transaction card_id.
+      client_id:
+        canonical_name: client_id
+        duckdb_type: BIGINT
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.client_id), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.client_id), '-?[0-9]+')
+          THEN CAST(src.client_id AS BIGINT) ELSE error('Invalid integer token: client_id') END
+        expose_to_llm: true
+        sensitivity: pseudonymous_identifier
+        description: Card owner referencing users.client_id.
+      card_brand:
+        canonical_name: card_brand
+        duckdb_type: VARCHAR
+        expression_sql: NULLIF(trim(src.card_brand), '')
+        expose_to_llm: true
+        sensitivity: category
+        description: Card network/brand; distinct from card type.
+        observed_values: [Amex, Discover, Mastercard, Visa]
+      card_type:
+        canonical_name: card_type
+        duckdb_type: VARCHAR
+        expression_sql: NULLIF(trim(src.card_type), '')
+        expose_to_llm: true
+        sensitivity: category
+        description: Source card product class. Include both Debit and Debit (Prepaid) only when the question includes all debit products.
+        observed_values: [Credit, Debit, Debit (Prepaid)]
+      card_number:
+        canonical_name: null
+        duckdb_type: VARCHAR
+        expose_to_llm: false
+        sensitivity: restricted_payment_credential
+        description: Full payment card number. Never expose, sample into context or use as a join key.
+      expires:
+        canonical_name: null
+        duckdb_type: DATE
+        expose_to_llm: false
+        sensitivity: restricted_payment_credential
+        description: Expiry month/year is stored as DATE with day 01 as a month-precision convention; omitted from canonical analytics.
+      cvv:
+        canonical_name: null
+        duckdb_type: VARCHAR
+        expose_to_llm: false
+        sensitivity: restricted_payment_credential
+        description: Card security code. Never expose to prompts, query results or logs.
+      has_chip:
+        canonical_name: has_chip
+        duckdb_type: BOOLEAN
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.has_chip), '') IS NULL THEN NULL WHEN upper(trim(src.has_chip)) = 'YES' THEN TRUE
+          WHEN upper(trim(src.has_chip)) = 'NO' THEN FALSE ELSE error('Unrecognized has_chip flag') END
+        expose_to_llm: true
+        sensitivity: operational
+        description: Card chip capability in the snapshot; does not prove chip use for any transaction.
+      num_cards_issued:
+        canonical_name: num_cards_issued
+        duckdb_type: INTEGER
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.num_cards_issued), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.num_cards_issued), '-?[0-9]+')
+          THEN CAST(src.num_cards_issued AS INTEGER) ELSE error('Invalid integer token: num_cards_issued') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Source issuance-count attribute. Exact counting scope is undocumented; do not equate to number of card rows or customers.
+      credit_limit:
+        canonical_name: credit_limit
+        duckdb_type: DECIMAL(18,2)
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.credit_limit), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.credit_limit), '[$]?-?([0-9]+|[0-9]{1,3}(,[0-9]{3})+)([.][0-9]{1,2})?')
+          THEN CAST(replace(replace(trim(src.credit_limit), '$', ''), ',', '') AS DECIMAL(18,2))
+          ELSE error('Invalid monetary token: credit_limit') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Source limit attribute, also populated for debit products. Do not assume a credit facility or available balance.
+      acct_open_date:
+        canonical_name: account_open_month
+        duckdb_type: DATE
+        expression_sql: CAST(strptime(NULLIF(trim(src.acct_open_date), ''), '%m/%Y') AS DATE)
+        expose_to_llm: true
+        sensitivity: financial
+        description: Recorded account-opening month, not a verified card activation date; day 01 is a storage convention.
+      year_pin_last_changed:
+        canonical_name: year_pin_last_changed
+        duckdb_type: INTEGER
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.year_pin_last_changed), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.year_pin_last_changed), '-?[0-9]+')
+          THEN CAST(src.year_pin_last_changed AS INTEGER) ELSE error('Invalid integer token: year_pin_last_changed') END
+        expose_to_llm: true
+        sensitivity: operational
+        description: Snapshot year of latest PIN change; the PIN itself is not supplied.
+      card_on_dark_web:
+        canonical_name: card_on_dark_web
+        duckdb_type: BOOLEAN
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.card_on_dark_web), '') IS NULL THEN NULL WHEN upper(trim(src.card_on_dark_web)) = 'YES' THEN TRUE
+          WHEN upper(trim(src.card_on_dark_web)) = 'NO' THEN FALSE ELSE error('Unrecognized dark-web flag') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Source card-level flag, all No in this snapshot. Not a transaction fraud label.
+
+  users:
+    source: {path: FinancialTransactionsDataset/users_data.csv, format: csv}
+    description: Customer demographic and financial profile in an undated snapshot.
+    grain: One customer record.
+    primary_key: [client_id]
+    default_alias: u
+    synonyms: [users, customers, clients, cardholders]
+    temporal_scope: Snapshot date unknown. Current age, income, debt and scores are not historical observations.
+    columns:
+      id:
+        canonical_name: client_id
+        duckdb_type: BIGINT
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.id), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.id), '-?[0-9]+')
+          THEN CAST(src.id AS BIGINT) ELSE error('Invalid integer token: id') END
+        expose_to_llm: true
+        sensitivity: pseudonymous_identifier
+        description: Customer ID referenced by cards.client_id and transactions.client_id.
+      current_age:
+        canonical_name: current_age
+        duckdb_type: INTEGER
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.current_age), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.current_age), '-?[0-9]+')
+          THEN CAST(src.current_age AS INTEGER) ELSE error('Invalid integer token: current_age') END
+        expose_to_llm: true
+        sensitivity: demographic
+        description: Age in the source snapshot, not age at transaction time or today.
+      retirement_age:
+        canonical_name: retirement_age
+        duckdb_type: INTEGER
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.retirement_age), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.retirement_age), '-?[0-9]+')
+          THEN CAST(src.retirement_age AS INTEGER) ELSE error('Invalid integer token: retirement_age') END
+        expose_to_llm: true
+        sensitivity: demographic
+        description: Source retirement-age attribute; intended/actual retirement status is undocumented.
+      birth_year:
+        canonical_name: birth_year
+        duckdb_type: INTEGER
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.birth_year), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.birth_year), '-?[0-9]+')
+          THEN CAST(src.birth_year AS INTEGER) ELSE error('Invalid integer token: birth_year') END
+        expose_to_llm: true
+        sensitivity: demographic
+        description: Recorded year of birth. Year subtraction alone does not establish exact age on a transaction date.
+      birth_month:
+        canonical_name: null
+        duckdb_type: INTEGER
+        expose_to_llm: false
+        sensitivity: personal_detail
+        description: Birth month; omit from the initial model-facing projection.
+      gender:
+        canonical_name: gender
+        duckdb_type: VARCHAR
+        expression_sql: NULLIF(trim(src.gender), '')
+        expose_to_llm: true
+        sensitivity: demographic
+        description: Source gender label; do not infer missing labels or generalize beyond this sample.
+        observed_values: [Female, Male]
+      address:
+        canonical_name: null
+        duckdb_type: VARCHAR
+        expose_to_llm: false
+        sensitivity: direct_personal_identifier
+        description: Customer street address. Excluded from canonical analytics.
+      latitude:
+        canonical_name: null
+        duckdb_type: DOUBLE
+        expose_to_llm: false
+        sensitivity: precise_personal_location
+        description: Customer-associated latitude, not merchant latitude. Excluded from canonical analytics.
+      longitude:
+        canonical_name: null
+        duckdb_type: DOUBLE
+        expose_to_llm: false
+        sensitivity: precise_personal_location
+        description: Customer-associated longitude, not merchant longitude. Excluded from canonical analytics.
+      per_capita_income:
+        canonical_name: per_capita_income
+        duckdb_type: DECIMAL(18,2)
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.per_capita_income), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.per_capita_income), '[$]?-?([0-9]+|[0-9]{1,3}(,[0-9]{3})+)([.][0-9]{1,2})?')
+          THEN CAST(replace(replace(trim(src.per_capita_income), '$', ''), ',', '') AS DECIMAL(18,2))
+          ELSE error('Invalid monetary token: per_capita_income') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Source per-capita-income attribute; population/geography and reference period are undocumented. Do not substitute for personal income.
+      yearly_income:
+        canonical_name: yearly_income
+        duckdb_type: DECIMAL(18,2)
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.yearly_income), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.yearly_income), '[$]?-?([0-9]+|[0-9]{1,3}(,[0-9]{3})+)([.][0-9]{1,2})?')
+          THEN CAST(replace(replace(trim(src.yearly_income), '$', ''), ',', '') AS DECIMAL(18,2))
+          ELSE error('Invalid monetary token: yearly_income') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Customer annual-income attribute in the undated snapshot, not measured in the requested transaction year.
+      total_debt:
+        canonical_name: total_debt
+        duckdb_type: DECIMAL(18,2)
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.total_debt), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.total_debt), '[$]?-?([0-9]+|[0-9]{1,3}(,[0-9]{3})+)([.][0-9]{1,2})?')
+          THEN CAST(replace(replace(trim(src.total_debt), '$', ''), ',', '') AS DECIMAL(18,2))
+          ELSE error('Invalid monetary token: total_debt') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Customer total-debt attribute in the snapshot; not a card balance or monthly debt payment.
+      credit_score:
+        canonical_name: credit_score
+        duckdb_type: INTEGER
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.credit_score), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.credit_score), '-?[0-9]+')
+          THEN CAST(src.credit_score AS INTEGER) ELSE error('Invalid integer token: credit_score') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Source credit score; model/provider, reference date and risk bands are undocumented.
+      num_credit_cards:
+        canonical_name: num_credit_cards
+        duckdb_type: INTEGER
+        expression_sql: >-
+          CASE WHEN NULLIF(trim(src.num_credit_cards), '') IS NULL THEN NULL
+          WHEN regexp_full_match(trim(src.num_credit_cards), '-?[0-9]+')
+          THEN CAST(src.num_credit_cards AS INTEGER) ELSE error('Invalid integer token: num_credit_cards') END
+        expose_to_llm: true
+        sensitivity: financial
+        description: Reported count equals all card inventory rows per user in this snapshot, and differs from Credit-type-only counts for 1799 users. Do not interpret the field name as Credit-type-only.
+
+  mcc_codes:
+    source:
+      path: FinancialTransactionsDataset/mcc_codes.json
+      format: json_object
+    description: Supplied merchant-category lookup; authoritative only for this dataset's labels.
+    grain: One description per MCC key in the supplied mapping.
+    primary_key: [mcc]
+    default_alias: m
+    synonyms: [merchant categories, merchant category codes, business categories, MCC]
+    columns:
+      mcc:
+        canonical_name: mcc
+        duckdb_type: VARCHAR
+        expression_sql: src.mcc
+        expose_to_llm: true
+        sensitivity: public_reference
+        description: Four-digit category code stored as text, never a numeric measure.
+      description:
+        canonical_name: description
+        duckdb_type: VARCHAR
+        expression_sql: src.description
+        expose_to_llm: true
+        sensitivity: public_reference
+        description: Exact supplied category label. It is not a merchant name.
+
+relationships:
+  - id: transaction_customer
+    from_table: transactions
+    from_alias: t
+    from_columns: [client_id]
+    to_table: users
+    to_alias: u
+    to_columns: [client_id]
+    cardinality: many_to_one
+    join_sql: t.client_id = u.client_id
+    default_join: LEFT
+    purpose: Enrich transactions with snapshot customer attributes.
+  - id: transaction_card
+    from_table: transactions
+    from_alias: t
+    from_columns: [card_id, client_id]
+    to_table: cards
+    to_alias: c
+    to_columns: [card_id, client_id]
+    cardinality: many_to_one
+    join_sql: t.card_id = c.card_id AND t.client_id = c.client_id
+    default_join: LEFT
+    purpose: Match the specific card and verify ownership; never join cards on client_id alone.
+  - id: card_customer
+    from_table: cards
+    from_alias: c
+    from_columns: [client_id]
+    to_table: users
+    to_alias: u
+    to_columns: [client_id]
+    cardinality: many_to_one
+    join_sql: c.client_id = u.client_id
+    default_join: LEFT
+    purpose: Enrich each card with its owner's snapshot attributes.
+  - id: transaction_category
+    from_table: transactions
+    from_alias: t
+    from_columns: [mcc]
+    to_table: mcc_codes
+    to_alias: m
+    to_columns: [mcc]
+    cardinality: many_to_one
+    join_sql: t.mcc = m.mcc
+    default_join: LEFT
+    purpose: Add category labels while preserving unmapped transaction codes.

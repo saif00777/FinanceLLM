@@ -1,0 +1,84 @@
+# PROGRESS.md
+
+Running progress log and cross-session memory for this repository. This directory is **not** a git repository, so there is no commit history or blame to reconstruct context from — this file is the durable record. Read it at the start of a session before starting work; update it before ending one.
+
+**How to use this file**
+
+- Keep the **Current state** section current — it's a snapshot, not a log. Edit it in place when it goes stale.
+- Never rewrite the **Session log**. Append a new dated entry at the top (reverse-chronological). If you're resuming the same date, add a new entry rather than editing an old one.
+- Log what changed, why, and what verification was actually run (test output, not assumptions). Cite files/line numbers where useful.
+- If you leave work mid-stream, say so explicitly under "In progress" with enough detail that a cold session can resume without re-discovering the state.
+
+## Current state (as of 2026-09-21)
+
+### Working
+
+- FastAPI backend ([app/api/main.py](app/api/main.py)) with a compiled LangGraph multi-agent workflow ([app/agents/text_to_sql/workflow.py](app/agents/text_to_sql/workflow.py)): hard guards, domain guard, schema-link + metric-resolver, SQL generation with AST policy validation and up to 2 repairs, single bounded execution, parallel data-analysis/analyst, grounding reviewer, suggested questions.
+- Context layer v2.0.0 ([context/schema.yaml](context/schema.yaml), [context/semantics.yaml](context/semantics.yaml)) is the runtime contract; MotherDuck import/admin tooling ([ingestion/motherduck.py](ingestion/motherduck.py)) is separate and working.
+- Conversation persistence: in-memory store by default, Supabase-backed when `SUPABASE_URL`/`SUPABASE_KEY` are set ([app/helpers/conversation.py](app/helpers/conversation.py)).
+- Deterministic 17-case offline eval gate (`scripts/run_evals.py` against `evals/*.json`) and a 94-case unit test suite (`tests/`, all fakes/mocks — no live network calls).
+
+### In progress / incomplete
+
+- **Consumer-complaints RAG ingestion is mid-run, not finished.** As of the last check, the checkpoint recorded **2,848 of ~66,806** consented documents uploaded (source fingerprint `df219bbc...`), with the remaining ~63,958 documents running via a background job started this session (`python -m ingestion.complaints.cli --upload`, output appended to `.complaints-rag-upload.log` / `.complaints-rag-upload.error.log`). Check `.complaints-rag-checkpoint.json`'s `completed_documents` for current progress, or the log files for errors. If it stopped early, just re-run `python -m ingestion.complaints.cli --upload` (no `--restart`) to resume from the checkpoint.
+- Eval coverage gap (unchanged from the original plan): [evals/rag_safety.json](evals/rag_safety.json) has only 2 cases. The complaints-RAG plan ([docs/superpowers/plans/2026-09-19-complaints-rag.md](docs/superpowers/plans/2026-09-19-complaints-rag.md), task 5) called for cases covering relevance, unsupported questions, prompt injection embedded in narrative text, and metadata-filter enforcement — none of those beyond the two existing citation/blocked-request cases exist yet.
+- Public-hosting gates not started: rate limiting and a kill switch (no matches anywhere in `app/`), the restricted-scope MotherDuck serving credential (out of scope per user direction on 2026-09-21 — current owner token is fine for now), and the staging-integration/human-review eval tiers.
+- **Hybrid SQL+RAG design approved and planned, not yet implemented.** Spec: [docs/superpowers/specs/2026-09-21-hybrid-sql-rag-design.md](docs/superpowers/specs/2026-09-21-hybrid-sql-rag-design.md). Plan: [docs/superpowers/plans/2026-09-21-hybrid-sql-rag.md](docs/superpowers/plans/2026-09-21-hybrid-sql-rag.md) (3 tasks: `DomainDecision.sources` classification; sequential source-aware routing + per-branch state keys + `merge_results` node; eval fixture update). Lets one chat request use both the SQL branch and the complaints-RAG branch when a question genuinely needs both, combined into one answer with no implied relationship between the two datasets (confirmed there's no join key between them). **Important:** the routing is sequential (RAG runs first as a prefix step, then SQL), not true parallel fan-out — a parallel design was drafted first, then empirically proven broken (double-fires `merge_results`/`suggestions`, or deadlocks, depending on edge form) against the real installed LangGraph version during planning, and the spec/plan were corrected before implementation started. Read the plan file before implementing, not just this summary.
+
+### Known issues
+
+None currently known. (Previous entry — `ComplaintQdrantStore.upsert` not retrying on transient write timeouts — fixed 2026-09-21; see Session log.)
+
+## Session log
+
+### 2026-09-21 — Hybrid SQL+RAG: spec corrected mid-planning, full implementation plan written
+
+- Continuation of the brainstorming session below. User approved the spec, then said "go ahead" — invoked the `writing-plans` skill to turn it into a task-by-task plan.
+- While preparing the plan, re-verified the spec's core graph-join mechanism against the real installed LangGraph (`1.2.11`) with topology-accurate throwaway spikes (`langgraph_hybrid_path_spike.py`, `spike2.py`, `spike3.py`, scratchpad only) — and found the spec's *approved* design was actually broken: true parallel fan-out (RAG and SQL both scheduled from `document_router`, converging on `merge_results` via plain edges) double-fires `merge_results` *and* `suggestions` when branch lengths differ (RAG finishes in 1 step, SQL in ~8) — a real wasted LLM call, not just a cosmetic issue. Switching to the bundled list-form join (the same pattern already used elsewhere in this graph) fixes the double-fire but deadlocks single-branch requests instead, since it unconditionally requires every listed predecessor.
+- Fix, verified empirically before writing it into the plan: make RAG a **sequential prefix step** rather than a true parallel branch — it runs first when needed (RAG-only or hybrid) and its own conditional edge chains into the SQL branch or straight to `merge_results`. This gives `merge_results` exactly one real predecessor per request, always, with no join ambiguity. Confirmed via spike: exactly one `merge_results`/`suggestions` firing in all three modes (sql-only, rag-only, both), with the correct node sequence.
+- Updated the approved spec in place ([docs/superpowers/specs/2026-09-21-hybrid-sql-rag-design.md](docs/superpowers/specs/2026-09-21-hybrid-sql-rag-design.md)) to reflect the corrected sequential design and documented the full investigation in its "Verified technical risk" section, before writing the plan around it — did not silently build the plan around a design already known to be broken.
+- Wrote the full plan to [docs/superpowers/plans/2026-09-21-hybrid-sql-rag.md](docs/superpowers/plans/2026-09-21-hybrid-sql-rag.md): Task 1 (`DomainDecision.sources` + specialist prompt), Task 2 (sequential routing + per-branch `sql_route`/`sql_answer`/`rag_route`/`rag_message` state keys + new `merge_results` node — one atomic task, none of it works independently), Task 3 (hybrid `graph_paths.json` eval case + updating the hardcoded 17→18 fixture-count assertions in `tests/test_evaluations.py`). Deliberately did **not** add a `domain_guard.json` eval case for `sources` classification (documented why in Task 3: the evaluator has no field that checks it, so it wouldn't test anything real). Self-review caught and fixed one inconsistency (a leftover `@staticmethod`/list-return artifact from the earlier, abandoned parallel design).
+- No application code changed yet — this session was spec + plan only. Next: user chooses subagent-driven vs. inline execution.
+
+### 2026-09-21 — Brainstormed and specced hybrid SQL+RAG answering
+
+- User asked for the bot to answer questions needing both the financial-transactions SQL branch and the consumer-complaints RAG branch in one response — currently `document_router` routes to exactly one, never both. Classified as architectural (changes graph topology and a stated safety invariant) and ran the brainstorming skill's full process rather than jumping to code.
+- Key findings/decisions, confirmed with the user at each step: (1) the two datasets share no join key (`transactions.merchant_id` is anonymous per `context/schema.yaml`; complaints key on company/product/issue text) — hybrid means two independent parallel lookups combined, never a join or LLM-synthesized link; (2) source routing is classified by extending the existing domain-guard LLM call (new `sources` field on `DomainDecision`) rather than adding a new specialist call; (3) combined answer is template concatenation, explicitly without "related" wording; (4) when branches disagree, show whichever succeeded.
+- Along the way, identified and *verified* (not just asserted) a real technical hazard: the SQL and RAG branches both currently write to the shared `answer`/`route` state keys, which collides if both run in the same request. Wrote a throwaway LangGraph spike (`langgraph_fanout_spike.py`, scratchpad only, not committed to the repo) against the exact installed `langgraph==1.2.11` and confirmed: (a) concurrent writes to a shared non-reducer key do raise `InvalidUpdateError`, confirming the fix is necessary; (b) a conditional edge fanning out to one-or-two nodes correctly joins exactly once at a shared downstream node in all cases (both/either-only), with no deadlock or double-fire — de-risking the planned `merge_results` node design. **(Superseded — see the entry above; that spike used equal-length branches and didn't generalize to this graph's real unequal-length branches.)**
+- Wrote the full design spec to [docs/superpowers/specs/2026-09-21-hybrid-sql-rag-design.md](docs/superpowers/specs/2026-09-21-hybrid-sql-rag-design.md), ran the skill's self-review pass (caught and fixed one real inconsistency in the merge-node pseudocode — a stray fallback to the old shared `answer` key that contradicted the stated design). No application code changed yet.
+- Next step: user reviews the spec; once approved, hand off to the `writing-plans` skill per this repo's documented pipeline (see [AGENTS.md](AGENTS.md)) — do not skip straight to implementation.
+
+### 2026-09-21 — Fixed Qdrant retry gap and resumed complaints RAG ingestion
+
+- Implemented the fix identified earlier today: `ComplaintQdrantStore.upsert` now retries once on `TimeoutError` or `qdrant_client.http.exceptions.ResponseHandlingException` before raising ([ingestion/complaints/qdrant_store.py](ingestion/complaints/qdrant_store.py), new `_upsert_with_retry`). Safe because points are keyed by a deterministic `uuid5(source_hash)`, so a retried upsert is idempotent.
+- Verified: `tests.test_qdrant_store` (3/3) now passes, full suite is 94/94 (previously 93/94), and `scripts/run_evals.py` still passes 17/17.
+- Live-validated the fix against real infrastructure with a small batch before committing to the full run: `python -m ingestion.complaints.cli --upload --limit 32` succeeded, advancing the checkpoint 2,816 → 2,848.
+- Resumed the full remaining ingestion (~63,958 documents) as a background job (`python -m ingestion.complaints.cli --upload`, no `--limit`), output appending to `.complaints-rag-upload.log` / `.complaints-rag-upload.error.log`. Not yet confirmed complete as of this entry — check `.complaints-rag-checkpoint.json`'s `completed_documents` or the log files for current status in a later session.
+- Per explicit user direction this session, the restricted MotherDuck serving-credential item is deliberately out of scope for now (owner token remains fine to keep using).
+
+### 2026-09-21 — Onboarding docs + status check + automated PROGRESS.md reminder
+
+- Added [CLAUDE.md](CLAUDE.md) (architecture/commands guide for future Claude Code sessions) and this file.
+- Ran the full unit suite (`python -m unittest discover -s tests`): 94 tests, 1 failure — `test_qdrant_store.QdrantStoreTests.test_store_retries_an_idempotent_timeout_once`. Traced it to a real gap in `ComplaintQdrantStore.upsert` (no retry) and matched it against the actual halted ingestion run recorded in `.complaints-rag-upload.error.log` / `.complaints-rag-checkpoint.json`. No code changed yet — recorded above as the next actionable item.
+- Added a project-level `Stop` hook ([.claude/settings.json](.claude/settings.json), script at [.claude/hooks/remind_progress_update.py](.claude/hooks/remind_progress_update.py)) so this file gets kept current automatically rather than by convention alone: whenever Claude is about to finish responding, it checks whether any repo file (excluding build/venv/log noise) has a newer mtime than `PROGRESS.md`. If so, it blocks the stop once with a reason asking Claude to update "Current state"/"Session log" — or explain the turn was trivial and stop anyway. `stop_hook_active` guards against looping (only fires once per turn). Verified two ways: piping synthesized Stop-hook JSON into the script directly, and a real live fire in-session — editing `CLAUDE.md` after this file was last saved triggered the actual hook and blocked the stop with the expected reason, confirming the settings file was picked up without needing a restart.
+
+### 2026-09-19 — Consumer-complaints RAG branch built; live upload started and interrupted
+
+- Per [docs/superpowers/plans/2026-09-19-complaints-rag.md](docs/superpowers/plans/2026-09-19-complaints-rag.md): built the self-contained ingestion package (`ingestion/complaints/{documents,pipeline,qdrant_store,cli}.py`) producing consented, redacted `ComplaintDocument`s from `consumerComplaints/consumer_complaints.csv`, plus the retrieval-time safety adapter ([app/agents/complaints/retrieval.py](app/agents/complaints/retrieval.py)) wired into the LangGraph workflow's `document_router`/`complaint_retrieval` nodes.
+- Finalized the 17-case eval fixture set under `evals/` and `scripts/run_evals.py` as the release gate (see [evals/README.md](evals/README.md)).
+- Ran a live `--upload` ingestion pass against Qdrant: completed 2,816 documents, then hit a write timeout and stopped (see "In progress" above — unresolved as of 2026-09-21).
+
+### 2026-09-17 — Multi-agent backend implemented (LangGraph)
+
+- Implemented the LangGraph state graph decided in the 2026-09-16 amendment: `app/agents/text_to_sql/{workflow,domain_guard,specialists,contracts}.py`, the `SqlPolicy` AST validator ([app/helpers/sql_policy.py](app/helpers/sql_policy.py)), `QueryRunner`, and optional Langfuse telemetry ([app/helpers/telemetry.py](app/helpers/telemetry.py)).
+- Wired it behind FastAPI (`app/api/main.py`), with server-only credential loading via `AppConfig`.
+
+### 2026-09-16 — Orchestration decision reversed: PydanticAI single-agent → LangGraph multi-agent
+
+- Original architecture ([docs/architecture/2026-09-16-text-to-sql-backend.md](docs/architecture/2026-09-16-text-to-sql-backend.md), ADR-002) chose a bounded single PydanticAI agent with app-owned limits (one schema-link stage, one SQL proposal, ≤2 repairs, one execution).
+- Superseded same day by [docs/architecture/2026-09-16-multi-agent-amendment.md](docs/architecture/2026-09-16-multi-agent-amendment.md): moved orchestration to LangGraph for explicit role boundaries, parallel branches, and review gates; added domain-guard and suggested-question specialist roles; decided Supabase for durable conversation memory and reserved Qdrant for a future document-RAG branch (later built 2026-09-19).
+- Also built MotherDuck import/admin tooling this day ([docs/superpowers/plans/2026-09-16-motherduck-import.md](docs/superpowers/plans/2026-09-16-motherduck-import.md), `ingestion/motherduck.py`, `ingestion/motherduck_cli.py`).
+
+### 2026-09-15 — Context layer established
+
+- Built the runtime schema/semantics contract ([context/schema.yaml](context/schema.yaml), [context/semantics.yaml](context/semantics.yaml), v2.0.0) per [docs/superpowers/specs/2026-09-15-context-layer-design.md](docs/superpowers/specs/2026-09-15-context-layer-design.md) and [docs/superpowers/plans/2026-09-15-context-layer.md](docs/superpowers/plans/2026-09-15-context-layer.md). This is the schema-linking source of truth used by every later agent node.

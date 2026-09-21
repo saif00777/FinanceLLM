@@ -1,0 +1,136 @@
+{
+  "contract_version": "1.0.0",
+  "purpose": "Historical local-file ingestion profile. It is lineage only; context/profile.json is the MotherDuck runtime source-of-truth profile.",
+  "profiled_at_utc": "2026-09-15T06:10:21Z",
+  "engine": {"name": "DuckDB", "version": "1.5.5"},
+  "coverage": {
+    "mode": "full_scan",
+    "sampling_used": false,
+    "source_mutation": false,
+    "checks": [
+      "Strict CSV parsing with header and all_varchar; all source headers recorded in schema.yaml",
+      "Exact row counts, distinct source IDs and null source IDs for all CSVs",
+      "Full transaction timestamp and DECIMAL(18,2) amount parsing",
+      "Every exposed schema projection evaluated across its entire source, with canonical null counts",
+      "Full source-key joins and transaction/card owner consistency",
+      "Full categorical frequencies for card attributes, gender, transaction methods and error strings",
+      "Full-file SHA-256 fingerprints"
+    ],
+    "not_validated": [
+      "Meaning of positive/negative amounts, settlement status or fraud outcomes",
+      "Dataset publisher, license, synthetic provenance, time zone or ISO currency",
+      "Customer/card snapshot effective dates or historical accuracy",
+      "Value-level correctness and formatting of excluded personal/payment fields",
+      "External merchant identities or MCC standards beyond the supplied lookup"
+    ]
+  },
+  "sources": {
+    "transactions": {
+      "path": "FinancialTransactionsDataset/transactions_data.csv",
+      "bytes": 1258531040,
+      "mtime_utc": "2026-09-14T10:42:52.362315+00:00",
+      "sha256": "26a5365ffa3423b41080989afcbeaa7f838d2cb504c21c6bf13471b2c13872d6",
+      "row_count": 13305915,
+      "distinct_source_ids": 13305915,
+      "null_source_ids": 0,
+      "min_transaction_at": "2010-01-01 00:01:00",
+      "max_transaction_at": "2019-10-31 23:59:00",
+      "invalid_transaction_timestamps": 0,
+      "invalid_transaction_amounts": 0,
+      "min_amount": "-500.00",
+      "max_amount": "6820.20",
+      "positive_amount_count": 12635227,
+      "negative_amount_count": 660049,
+      "zero_amount_count": 10639,
+      "error_recorded_count": 211393,
+      "online_city_sentinel_count": 1563700,
+      "canonical_null_counts": {
+        "transaction_id": 0, "transaction_at": 0, "client_id": 0, "card_id": 0,
+        "amount": 0, "transaction_method": 0, "merchant_id": 0, "merchant_city": 0,
+        "merchant_state": 1563700, "merchant_postal_code": 1652706,
+        "mcc": 0, "errors": 13094522
+      },
+      "transaction_method_counts": {
+        "Chip Transaction": 4780818,
+        "Online Transaction": 1557912,
+        "Swipe Transaction": 6967185
+      },
+      "error_text_counts": {
+        "Insufficient Balance": 130902, "Bad PIN": 32119, "Technical Glitch": 26271,
+        "Bad Card Number": 7767, "Bad Expiration": 6161, "Bad CVV": 6106, "Bad Zipcode": 1126,
+        "Bad PIN,Insufficient Balance": 293, "Insufficient Balance,Technical Glitch": 243,
+        "Bad Card Number,Insufficient Balance": 71, "Bad PIN,Technical Glitch": 70,
+        "Bad CVV,Insufficient Balance": 57, "Bad Expiration,Insufficient Balance": 47,
+        "Bad Card Number,Bad CVV": 38, "Bad Card Number,Bad Expiration": 33,
+        "Bad Expiration,Bad CVV": 32, "Bad Expiration,Technical Glitch": 21,
+        "Bad Card Number,Technical Glitch": 15, "Bad CVV,Technical Glitch": 8,
+        "Bad Zipcode,Insufficient Balance": 7, "Bad Zipcode,Technical Glitch": 5,
+        "Bad Card Number,Bad Expiration,Insufficient Balance": 1
+      }
+    },
+    "cards": {
+      "path": "FinancialTransactionsDataset/cards_data.csv",
+      "bytes": 509860,
+      "mtime_utc": "2026-09-14T10:42:14.836939+00:00",
+      "sha256": "894f52fbe1a2d4ea71c98256d51ea95ed5d1b9fb5348c0ccacca4fc6af633cd0",
+      "row_count": 6146, "distinct_source_ids": 6146, "null_source_ids": 0,
+      "canonical_null_counts": {
+        "card_id": 0, "client_id": 0, "card_brand": 0, "card_type": 0,
+        "has_chip": 0, "num_cards_issued": 0, "credit_limit": 0,
+        "account_open_month": 0, "year_pin_last_changed": 0, "card_on_dark_web": 0
+      },
+      "brand_type_counts": [
+        {"brand": "Amex", "type": "Credit", "count": 402},
+        {"brand": "Discover", "type": "Credit", "count": 209},
+        {"brand": "Mastercard", "type": "Credit", "count": 635},
+        {"brand": "Mastercard", "type": "Debit", "count": 2191},
+        {"brand": "Mastercard", "type": "Debit (Prepaid)", "count": 383},
+        {"brand": "Visa", "type": "Credit", "count": 811},
+        {"brand": "Visa", "type": "Debit", "count": 1320},
+        {"brand": "Visa", "type": "Debit (Prepaid)", "count": 195}
+      ],
+      "has_chip_counts": {"true": 5500, "false": 646},
+      "card_on_dark_web_counts": {"true": 0, "false": 6146}
+    },
+    "users": {
+      "path": "FinancialTransactionsDataset/users_data.csv",
+      "bytes": 164831,
+      "mtime_utc": "2026-09-14T10:42:52.401311+00:00",
+      "sha256": "5d0e5f5a1bc49ade9bd2d2de2ad98b9fba78e79d3d777895074af48decef02b6",
+      "row_count": 2000, "distinct_source_ids": 2000, "null_source_ids": 0,
+      "canonical_null_counts": {
+        "client_id": 0, "current_age": 0, "retirement_age": 0, "birth_year": 0,
+        "gender": 0, "per_capita_income": 0, "yearly_income": 0,
+        "total_debt": 0, "credit_score": 0, "num_credit_cards": 0
+      },
+      "gender_counts": {"Female": 1016, "Male": 984},
+      "reported_card_count_comparison": {
+        "num_credit_cards_differs_from_all_card_rows_users": 0,
+        "num_credit_cards_differs_from_credit_type_card_rows_users": 1799,
+        "interpretation": "The named num_credit_cards field equals all inventory card rows for every user in this snapshot. Do not interpret its name as Credit-type-only without this caveat."
+      }
+    },
+    "mcc_codes": {
+      "path": "FinancialTransactionsDataset/mcc_codes.json",
+      "bytes": 4716,
+      "mtime_utc": "2026-09-14T10:42:14.849916+00:00",
+      "sha256": "ebe6c6869188b1af6cf4c8a904d4b59a6863b4fd7a63424d945d6789e122df1c",
+      "row_count": 109, "key_lengths": [4],
+      "canonical_null_counts": {"mcc": 0, "description": 0}
+    }
+  },
+  "relationships": {
+    "cards_without_users": 0, "transactions_without_users": 0,
+    "transactions_without_cards": 0, "transaction_card_owner_mismatches": 0,
+    "transactions_without_mcc_descriptions": 0
+  },
+  "reproduction_queries_after_canonical_preparation": [
+    "SELECT COUNT(*), COUNT(DISTINCT transaction_id), MIN(transaction_at), MAX(transaction_at), MIN(amount), MAX(amount), COUNT(*) FILTER (WHERE amount < 0), COUNT(*) FILTER (WHERE amount = 0), COUNT(*) FILTER (WHERE amount > 0), COUNT(*) FILTER (WHERE errors IS NOT NULL) FROM transactions",
+    "SELECT COUNT(*) FILTER (WHERE u.client_id IS NULL), COUNT(*) FILTER (WHERE c.card_id IS NULL), COUNT(*) FILTER (WHERE c.card_id IS NOT NULL AND t.client_id IS DISTINCT FROM c.client_id), COUNT(*) FILTER (WHERE m.mcc IS NULL) FROM transactions t LEFT JOIN users u ON t.client_id=u.client_id LEFT JOIN cards c ON t.card_id=c.card_id LEFT JOIN mcc_codes m ON t.mcc=m.mcc",
+    "SELECT transaction_method, COUNT(*) FROM transactions GROUP BY 1 ORDER BY 1",
+    "SELECT errors, COUNT(*) FROM transactions WHERE errors IS NOT NULL GROUP BY 1 ORDER BY 2 DESC",
+    "SELECT card_brand, card_type, COUNT(*) FROM cards GROUP BY 1,2 ORDER BY 1,2",
+    "SELECT gender, COUNT(*) FROM users GROUP BY 1 ORDER BY 1"
+  ],
+  "refresh_policy": "Invalidate this profile if any source SHA-256 changes. Re-run the declared projections, full counts, null checks, key/relationship checks and distributions before refreshing observations. Fixture tests alone do not refresh this profile."
+}

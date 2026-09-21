@@ -1,0 +1,3 @@
+# Validation dependencies; the context package itself is plain YAML/JSON/Markdown.
+duckdb==1.5.5
+PyYAML==6.0.3

@@ -1,0 +1,276 @@
+{
+  "contract_version": "2.0.0",
+  "profiled_at_utc": "2026-09-16T10:26:32Z",
+  "engine": {
+    "name": "DuckDB / MotherDuck",
+    "version": "1.5.5"
+  },
+  "source_of_truth": {
+    "kind": "motherduck_database",
+    "provider": "motherduck",
+    "database": "financial_transactions",
+    "canonical_schema": "main",
+    "source_schema": "source",
+    "credential_status": "temporary owner token used for development validation; not suitable as a model-serving credential",
+    "verification_status": "verified_post_upload"
+  },
+  "coverage": {
+    "mode": "post_upload_database_validation",
+    "sampling_used": false,
+    "checks": [
+      "column names and types",
+      "all table row counts",
+      "primary-key uniqueness and non-nullness",
+      "all-column row-hash XOR signatures",
+      "canonical null counts",
+      "foreign-key and card-owner relationships",
+      "transaction date range and monetary totals"
+    ],
+    "not_validated": [
+      "Meaning of positive/negative amounts, settlement status or fraud outcomes",
+      "Dataset publisher, license, synthetic provenance, time zone or ISO currency",
+      "Customer/card snapshot effective dates or historical accuracy",
+      "Value-level correctness of private source fields",
+      "External merchant identities or MCC standards beyond the supplied lookup"
+    ]
+  },
+  "canonical_relations": {
+    "transactions": {
+      "qualified_relation": "main.transactions",
+      "row_count": 13305915,
+      "columns": [
+        [
+          "transaction_id",
+          "BIGINT"
+        ],
+        [
+          "transaction_at",
+          "TIMESTAMP"
+        ],
+        [
+          "client_id",
+          "BIGINT"
+        ],
+        [
+          "card_id",
+          "BIGINT"
+        ],
+        [
+          "amount",
+          "DECIMAL(18,2)"
+        ],
+        [
+          "transaction_method",
+          "VARCHAR"
+        ],
+        [
+          "merchant_id",
+          "BIGINT"
+        ],
+        [
+          "merchant_city",
+          "VARCHAR"
+        ],
+        [
+          "merchant_state",
+          "VARCHAR"
+        ],
+        [
+          "merchant_postal_code",
+          "VARCHAR"
+        ],
+        [
+          "mcc",
+          "VARCHAR"
+        ],
+        [
+          "errors",
+          "VARCHAR"
+        ]
+      ],
+      "null_counts": {
+        "transaction_id": 0,
+        "transaction_at": 0,
+        "client_id": 0,
+        "card_id": 0,
+        "amount": 0,
+        "transaction_method": 0,
+        "merchant_id": 0,
+        "merchant_city": 0,
+        "merchant_state": 1563700,
+        "merchant_postal_code": 1652706,
+        "mcc": 0,
+        "errors": 13094522
+      }
+    },
+    "cards": {
+      "qualified_relation": "main.cards",
+      "row_count": 6146,
+      "columns": [
+        [
+          "card_id",
+          "BIGINT"
+        ],
+        [
+          "client_id",
+          "BIGINT"
+        ],
+        [
+          "card_brand",
+          "VARCHAR"
+        ],
+        [
+          "card_type",
+          "VARCHAR"
+        ],
+        [
+          "has_chip",
+          "BOOLEAN"
+        ],
+        [
+          "num_cards_issued",
+          "INTEGER"
+        ],
+        [
+          "credit_limit",
+          "DECIMAL(18,2)"
+        ],
+        [
+          "account_open_month",
+          "DATE"
+        ],
+        [
+          "year_pin_last_changed",
+          "INTEGER"
+        ],
+        [
+          "card_on_dark_web",
+          "BOOLEAN"
+        ]
+      ],
+      "null_counts": {
+        "card_id": 0,
+        "client_id": 0,
+        "card_brand": 0,
+        "card_type": 0,
+        "has_chip": 0,
+        "num_cards_issued": 0,
+        "credit_limit": 0,
+        "account_open_month": 0,
+        "year_pin_last_changed": 0,
+        "card_on_dark_web": 0
+      }
+    },
+    "users": {
+      "qualified_relation": "main.users",
+      "row_count": 2000,
+      "columns": [
+        [
+          "client_id",
+          "BIGINT"
+        ],
+        [
+          "current_age",
+          "INTEGER"
+        ],
+        [
+          "retirement_age",
+          "INTEGER"
+        ],
+        [
+          "birth_year",
+          "INTEGER"
+        ],
+        [
+          "gender",
+          "VARCHAR"
+        ],
+        [
+          "per_capita_income",
+          "DECIMAL(18,2)"
+        ],
+        [
+          "yearly_income",
+          "DECIMAL(18,2)"
+        ],
+        [
+          "total_debt",
+          "DECIMAL(18,2)"
+        ],
+        [
+          "credit_score",
+          "INTEGER"
+        ],
+        [
+          "num_credit_cards",
+          "INTEGER"
+        ]
+      ],
+      "null_counts": {
+        "client_id": 0,
+        "current_age": 0,
+        "retirement_age": 0,
+        "birth_year": 0,
+        "gender": 0,
+        "per_capita_income": 0,
+        "yearly_income": 0,
+        "total_debt": 0,
+        "credit_score": 0,
+        "num_credit_cards": 0
+      }
+    },
+    "mcc_codes": {
+      "qualified_relation": "main.mcc_codes",
+      "row_count": 109,
+      "columns": [
+        [
+          "mcc",
+          "VARCHAR"
+        ],
+        [
+          "description",
+          "VARCHAR"
+        ]
+      ],
+      "null_counts": {
+        "mcc": 0,
+        "description": 0
+      }
+    }
+  },
+  "relationships": {
+    "transactions_without_users": 0,
+    "transactions_without_cards": 0,
+    "transaction_card_owner_mismatches": 0,
+    "transactions_without_mcc_descriptions": 0,
+    "cards_without_users": 0
+  },
+  "transaction_observations": {
+    "first_timestamp": "2010-01-01 00:01:00",
+    "last_timestamp": "2019-10-31 23:59:00",
+    "net_amount": "571835522.28",
+    "positive_amount_total": "639354564.62",
+    "negative_amount_magnitude": "67519042.34",
+    "negative_count": "660049",
+    "zero_count": "10639",
+    "error_count": "211393"
+  },
+  "lineage": {
+    "import_contract": "context/import_schema.yaml",
+    "import_profile": "context/import_profile.json",
+    "note": "File hashes identify the imported snapshot only; ongoing runtime validation uses the MotherDuck catalog and aggregate checks."
+  },
+  "reproduction_queries": [
+    "SELECT COUNT(*), COUNT(DISTINCT transaction_id), MIN(transaction_at), MAX(transaction_at), MIN(amount), MAX(amount), COUNT(*) FILTER (WHERE amount < 0), COUNT(*) FILTER (WHERE amount = 0), COUNT(*) FILTER (WHERE amount > 0), COUNT(*) FILTER (WHERE errors IS NOT NULL) FROM main.transactions",
+    "SELECT COUNT(*) FILTER (WHERE u.client_id IS NULL), COUNT(*) FILTER (WHERE c.card_id IS NULL), COUNT(*) FILTER (WHERE c.card_id IS NOT NULL AND t.client_id IS DISTINCT FROM c.client_id), COUNT(*) FILTER (WHERE m.mcc IS NULL) FROM main.transactions t LEFT JOIN main.users u ON t.client_id=u.client_id LEFT JOIN main.cards c ON t.card_id=c.card_id LEFT JOIN main.mcc_codes m ON t.mcc=m.mcc",
+    "SELECT transaction_method, COUNT(*) FROM main.transactions GROUP BY 1 ORDER BY 1",
+    "SELECT card_brand, card_type, COUNT(*) FROM main.cards GROUP BY 1,2 ORDER BY 1,2",
+    "SELECT gender, COUNT(*) FROM main.users GROUP BY 1 ORDER BY 1"
+  ],
+  "refresh_policy": "The MotherDuck database is the runtime source of truth. Before changing this profile, validate the main view catalog/types, physical table counts and checksums, canonical null counts, key uniqueness, relationships and transaction aggregates. Update import lineage separately only when a new local-file import is performed.",
+  "private_source_boundary": {
+    "schema": "source",
+    "model_access": "prohibited",
+    "note": "Private source-table schemas, columns and validation detail remain in operator-only import artifacts and verification evidence."
+  }
+}

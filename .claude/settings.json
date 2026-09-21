@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/remind_progress_update.py",
+            "timeout": 15,
+            "statusMessage": "Checking PROGRESS.md is current..."
+          }
+        ]
+      }
+    ]
+  }
+}
