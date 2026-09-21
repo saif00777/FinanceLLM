@@ -21,7 +21,10 @@ class FakeRunner:
 
 class FakeSpecialists:
     def __init__(self): self.sql_calls = 0; self.metric_calls = 0; self.analysis_calls = 0; self.answer_calls = 0; self.plan_calls = 0; self.review_calls = 0; self.generator_context = ""
-    def domain_guard(self, question, facts): return DomainDecision("in_scope", "allowed")
+    def domain_guard(self, question, facts):
+        complaint_terms = ("complaint", "consumer complaint", "cfpb", "consumer narrative")
+        sources = ("rag",) if any(term in question.lower() for term in complaint_terms) else ("sql",)
+        return DomainDecision("in_scope", "allowed", sources=sources)
     def plan(self, question, facts): self.plan_calls += 1; return TaskPlan("aggregate_query", "planned", {"year": 2019})
     def schema_link(self, question, catalog): return catalog.link(question)
     def metric_resolution(self, question, catalog): self.metric_calls += 1; return {"metric": "positive_amount_total"}
@@ -57,6 +60,16 @@ class FakeComplaintRetriever:
     def retrieve(self, question):
         self.calls += 1
         return [ComplaintRetrievalResult("A redacted complaint narrative.", {"source_hash": "citation-a", "product": "Credit card"}, "citation-a")]
+
+
+class HybridDomainGuardSpecialists(FakeSpecialists):
+    def domain_guard(self, question, facts):
+        return DomainDecision("in_scope", "allowed", sources=("sql", "rag"))
+
+
+class HybridSqlUngroundedSpecialists(HybridDomainGuardSpecialists):
+    def review(self, question, columns, rows, answer, analysis):
+        return ReviewDecision(False, "ungrounded_for_test")
 
 
 class WorkflowTests(unittest.TestCase):
@@ -100,6 +113,43 @@ class WorkflowTests(unittest.TestCase):
         result = workflow.answer("What consumer complaints mention credit cards?")
         self.assertEqual(self.runner.calls, 0)
         self.assertEqual(retriever.calls, 1)
+        self.assertEqual(result.citations, [{"source_hash": "citation-a"}])
+
+    def test_hybrid_request_runs_both_branches_and_combines_the_answer(self):
+        retriever = FakeComplaintRetriever()
+        specialists = HybridDomainGuardSpecialists()
+        workflow = MultiAgentWorkflow(
+            RuntimeContract.from_files(ROOT), self.runner, specialists, InMemoryConversationStore(), HardGuard(),
+            complaint_retriever=retriever,
+        )
+        result = workflow.answer("Total spending by category and related consumer complaints")
+        self.assertEqual(self.runner.calls, 1)
+        self.assertEqual(retriever.calls, 1)
+        self.assertEqual(result.route, "answered")
+        self.assertIn("The total is 100.", result.answer)
+        self.assertIn("Consumer complaint narratives found:", result.answer)
+        self.assertNotIn("related", result.answer.lower())
+        self.assertEqual(result.citations, [{"source_hash": "citation-a"}])
+
+    def test_hybrid_request_degrades_to_sql_only_when_rag_not_configured(self):
+        specialists = HybridDomainGuardSpecialists()
+        workflow = MultiAgentWorkflow(RuntimeContract.from_files(ROOT), self.runner, specialists, InMemoryConversationStore(), HardGuard())
+        result = workflow.answer("Total spending and complaints")
+        self.assertEqual(self.runner.calls, 1)
+        self.assertEqual(result.route, "answered")
+        self.assertNotIn("Consumer complaint narratives found:", result.answer)
+
+    def test_hybrid_request_shows_rag_results_when_sql_grounding_is_rejected(self):
+        retriever = FakeComplaintRetriever()
+        specialists = HybridSqlUngroundedSpecialists()
+        workflow = MultiAgentWorkflow(
+            RuntimeContract.from_files(ROOT), self.runner, specialists, InMemoryConversationStore(), HardGuard(),
+            complaint_retriever=retriever,
+        )
+        result = workflow.answer("Total spending and related complaints")
+        self.assertEqual(result.route, "answered")
+        self.assertIn("narrower question", result.answer)
+        self.assertIn("Consumer complaint narratives found:", result.answer)
         self.assertEqual(result.citations, [{"source_hash": "citation-a"}])
 
     def test_unsafe_request_never_reaches_any_sql_specialist_or_runner(self):

@@ -27,11 +27,15 @@ class AgentState(TypedDict, total=False):
     facts: ConversationFacts
     route: str
     reason_code: str
+    sources: tuple[str, ...]
+    active_sources: tuple[str, ...]
     plan: Any
     linked: LinkedContext
     metric_context: dict[str, str]
     proposal: Any
     sql: str
+    sql_route: str
+    sql_answer: str
     repair_error: str
     repairs: int
     executions: int
@@ -40,6 +44,8 @@ class AgentState(TypedDict, total=False):
     chart: dict[str, Any] | None
     analysis: dict[str, Any] | None
     grounding: str
+    rag_route: str
+    rag_message: str
     suggested_questions: list[str]
     specialist_path: Annotated[list[str], add]
     citations: list[dict[str, object]]
@@ -121,20 +127,22 @@ class MultiAgentWorkflow:
         graph.add_node("analyst", self._traced("analyst", self._analyst_node))
         graph.add_node("reviewer", self._traced("reviewer", self._reviewer_node))
         graph.add_node("suggestions", self._traced("suggestions", self._suggestions_node))
+        graph.add_node("merge_results", self._traced("merge_results", self._merge_results_node))
         graph.add_edge(START, "hard_guard")
         graph.add_conditional_edges("hard_guard", self._after_hard_guard, {"domain_guard": "domain_guard", "suggestions": "suggestions"})
         graph.add_conditional_edges("domain_guard", self._after_domain_guard, {"document_router": "document_router", "suggestions": "suggestions"})
         graph.add_conditional_edges("document_router", self._after_document_router, {"planner": "planner", "complaint_retrieval": "complaint_retrieval"})
-        graph.add_edge("complaint_retrieval", "suggestions")
+        graph.add_conditional_edges("complaint_retrieval", self._after_complaint_retrieval_routing, {"planner": "planner", "merge_results": "merge_results"})
         graph.add_edge("planner", "schema_link")
         graph.add_edge("planner", "metric_resolver")
         graph.add_edge(["schema_link", "metric_resolver"], "sql_generator")
         graph.add_edge("sql_generator", "sql_policy")
-        graph.add_conditional_edges("sql_policy", self._after_policy, {"executor": "executor", "sql_generator": "sql_generator", "suggestions": "suggestions"})
+        graph.add_conditional_edges("sql_policy", self._after_policy, {"executor": "executor", "sql_generator": "sql_generator", "merge_results": "merge_results"})
         graph.add_edge("executor", "data_analysis")
         graph.add_edge("executor", "analyst")
         graph.add_edge(["data_analysis", "analyst"], "reviewer")
-        graph.add_edge("reviewer", "suggestions")
+        graph.add_edge("reviewer", "merge_results")
+        graph.add_edge("merge_results", "suggestions")
         graph.add_edge("suggestions", END)
         return graph.compile()
 
@@ -207,31 +215,40 @@ class MultiAgentWorkflow:
 
     def _domain_guard_node(self, state: AgentState) -> dict[str, Any]:
         decision = self._specialists.domain_guard(state["question"], state["facts"])
-        return {"route": "in_scope" if decision.route == "in_scope" else decision.route, "reason_code": decision.reason_code}
+        return {
+            "route": "in_scope" if decision.route == "in_scope" else decision.route,
+            "reason_code": decision.reason_code,
+            "sources": decision.sources,
+        }
 
     @staticmethod
     def _after_domain_guard(state: AgentState) -> str:
         return "document_router" if state["route"] == "in_scope" else "suggestions"
 
     def _document_router_node(self, state: AgentState) -> dict[str, Any]:
-        normalized = state["question"].lower()
-        complaint_terms = ("complaint", "consumer complaint", "cfpb", "consumer narrative")
-        return {"route": "complaint_request" if self._complaint_retriever and any(term in normalized for term in complaint_terms) else "sql_request"}
+        sources = set(state.get("sources", ("sql",)))
+        if "rag" in sources and self._complaint_retriever is None:
+            sources.discard("rag")
+        return {"active_sources": tuple(sorted(sources)) or ("sql",)}
 
     @staticmethod
     def _after_document_router(state: AgentState) -> str:
-        return "complaint_retrieval" if state["route"] == "complaint_request" else "planner"
+        return "complaint_retrieval" if "rag" in state["active_sources"] else "planner"
+
+    @staticmethod
+    def _after_complaint_retrieval_routing(state: AgentState) -> str:
+        return "planner" if "sql" in state["active_sources"] else "merge_results"
 
     def _complaint_retrieval_node(self, state: AgentState) -> dict[str, Any]:
         if self._complaint_retriever is None:
-            return {"route": "clarify", "answer": "Complaint retrieval is not configured."}
+            return {"rag_route": "clarify", "rag_message": "Complaint retrieval is not configured."}
         documents = self._complaint_retriever.retrieve(state["question"])
         citations = [{"source_hash": document.citation} for document in documents]
         if not documents:
-            return {"route": "answered", "answer": "I could not find a matching consented complaint narrative.", "documents": [], "citations": [], "grounding": "approved"}
+            return {"rag_route": "answered", "rag_message": "I could not find a matching consented complaint narrative.", "documents": [], "citations": [], "grounding": "approved"}
         return {
-            "route": "answered",
-            "answer": f"I found {len(documents)} relevant consented complaint narrative(s). The cited excerpts are redacted and the complaint branch did not query financial transactions.",
+            "rag_route": "answered",
+            "rag_message": f"I found {len(documents)} relevant consented complaint narrative(s). The cited excerpts are redacted and the complaint branch did not query financial transactions.",
             "documents": documents,
             "citations": citations,
             "grounding": "approved",
@@ -263,25 +280,25 @@ class MultiAgentWorkflow:
     def _sql_policy_node(self, state: AgentState) -> dict[str, Any]:
         proposal = state["proposal"]
         if not proposal.sql:
-            return {"route": "clarify", "answer": proposal.clarification or "Please clarify the requested analysis."}
+            return {"sql_route": "clarify", "sql_answer": proposal.clarification or "Please clarify the requested analysis."}
         try:
-            return {"sql": self._policy.validate(proposal.sql), "route": "approved"}
+            return {"sql": self._policy.validate(proposal.sql), "sql_route": "approved"}
         except SqlPolicyError as error:
-            return {"route": "repair", "repair_error": str(error), "repairs": state["repairs"] + 1}
+            return {"sql_route": "repair", "repair_error": str(error), "repairs": state["repairs"] + 1}
 
     @staticmethod
     def _after_policy(state: AgentState) -> str:
-        if state["route"] == "approved":
+        if state["sql_route"] == "approved":
             return "executor"
-        if state["route"] == "repair" and state["repairs"] <= 2:
+        if state["sql_route"] == "repair" and state["repairs"] <= 2:
             return "sql_generator"
-        return "suggestions"
+        return "merge_results"
 
     def _executor_node(self, state: AgentState) -> dict[str, Any]:
         if state["executions"] >= 1:
-            return {"route": "clarify", "answer": "The request exceeded its query budget."}
+            return {"sql_route": "clarify", "sql_answer": "The request exceeded its query budget."}
         result = self._runner.run(state["sql"])
-        return {"result": result, "executions": state["executions"] + 1, "route": "answered"}
+        return {"result": result, "executions": state["executions"] + 1, "sql_route": "answered"}
 
     def _data_analysis_node(self, state: AgentState) -> dict[str, Any]:
         result = state["result"]
@@ -291,19 +308,30 @@ class MultiAgentWorkflow:
     def _analyst_node(self, state: AgentState) -> dict[str, Any]:
         result = state["result"]
         grounded = self._specialists.analyze(state["question"], result.columns, result.rows, state["proposal"])
-        return {"answer": grounded.answer, "chart": grounded.chart}
+        return {"sql_answer": grounded.answer, "chart": grounded.chart}
 
     def _reviewer_node(self, state: AgentState) -> dict[str, Any]:
         result = state["result"]
-        decision = self._specialists.review(state["question"], result.columns, result.rows, state.get("answer", ""), state.get("analysis"))
+        decision = self._specialists.review(state["question"], result.columns, result.rows, state.get("sql_answer", ""), state.get("analysis"))
         if decision.approved:
-            return {"route": "answered", "reason_code": decision.reason_code, "grounding": "approved"}
+            return {"sql_route": "answered", "reason_code": decision.reason_code, "grounding": "approved"}
         return {
-            "route": "clarify",
+            "sql_route": "clarify",
             "reason_code": decision.reason_code,
             "grounding": decision.reason_code,
-            "answer": "The returned result needs a narrower question before I can give a grounded answer.",
+            "sql_answer": "The returned result needs a narrower question before I can give a grounded answer.",
         }
+
+    def _merge_results_node(self, state: AgentState) -> dict[str, Any]:
+        sql_route = state.get("sql_route")
+        rag_route = state.get("rag_route")
+        parts = []
+        if sql_route is not None:
+            parts.append(state["sql_answer"])
+        if rag_route is not None:
+            parts.append(f"Consumer complaint narratives found: {state['rag_message']}")
+        route = "answered" if "answered" in (sql_route, rag_route) else (sql_route or rag_route)
+        return {"answer": "\n\n".join(parts), "route": route}
 
     def _suggestions_node(self, state: AgentState) -> dict[str, Any]:
         linked = state.get("linked")
