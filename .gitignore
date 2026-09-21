@@ -19,3 +19,6 @@ consumerComplaints/*.sqlite
 # Vendored Superpowers skill tooling, not this project's code.
 .claude/skills/
 .agents/
+
+# Local git worktrees used for isolated plan execution.
+.worktrees/
