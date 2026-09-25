@@ -1,0 +1,42 @@
+[
+  {
+    "id": "parse",
+    "label": "Parses as SQL",
+    "detail": "The text is turned into a syntax tree. Anything that is not valid SQL stops here."
+  },
+  {
+    "id": "one-statement",
+    "label": "Exactly one statement",
+    "detail": "A second statement smuggled in after a semicolon is refused."
+  },
+  {
+    "id": "select-only",
+    "label": "SELECT only",
+    "detail": "This is a read-only assistant: no DELETE, UPDATE, DROP or any other write."
+  },
+  {
+    "id": "tables",
+    "label": "Approved tables only",
+    "detail": "Every table must be in the approved main schema, fully qualified. The private source tables are off limits."
+  },
+  {
+    "id": "columns",
+    "label": "Approved columns only",
+    "detail": "Every column must be on the approved list, with or without a table alias."
+  },
+  {
+    "id": "wildcard",
+    "label": "No wildcards",
+    "detail": "SELECT * could expose columns nobody approved, so columns must be named."
+  },
+  {
+    "id": "functions",
+    "label": "Approved functions only",
+    "detail": "Only functions on the approved list may be called, so nothing can read a file from disk."
+  },
+  {
+    "id": "limit",
+    "label": "Row limit of 100 or fewer",
+    "detail": "A missing limit is added as LIMIT 100. An explicit limit above 100 is refused."
+  }
+]

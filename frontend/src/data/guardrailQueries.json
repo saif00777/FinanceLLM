@@ -1,0 +1,83 @@
+[
+  {
+    "id": "top-categories",
+    "sql": "SELECT m.description, SUM(t.amount) AS total FROM main.transactions AS t JOIN main.mcc_codes AS m ON t.mcc = m.mcc GROUP BY m.description ORDER BY total DESC LIMIT 10",
+    "verdict": "allow",
+    "why": "One SELECT, approved tables and columns, an approved function, and a limit of 10. Nothing to fix."
+  },
+  {
+    "id": "count-chips",
+    "sql": "SELECT COUNT(*) AS n FROM main.cards AS c WHERE c.has_chip = true",
+    "verdict": "allow",
+    "why": "A single-number aggregate returns one row, so it needs no LIMIT."
+  },
+  {
+    "id": "by-year",
+    "sql": "SELECT EXTRACT(YEAR FROM t.transaction_at) AS year, COUNT(*) AS n FROM main.transactions AS t GROUP BY year ORDER BY year LIMIT 20",
+    "verdict": "allow",
+    "why": "EXTRACT is on the approved list, and GROUP BY year uses an alias the query itself defines."
+  },
+  {
+    "id": "no-limit-brand",
+    "sql": "SELECT c.card_brand, AVG(c.credit_limit) AS avg_limit FROM main.cards AS c GROUP BY c.card_brand",
+    "verdict": "fix",
+    "check": "limit",
+    "why": "Valid, but it returns many rows with no limit. The gate adds LIMIT 100 instead of rejecting it."
+  },
+  {
+    "id": "no-limit-mcc",
+    "sql": "SELECT t.mcc, COUNT(*) AS n FROM main.transactions AS t GROUP BY t.mcc",
+    "verdict": "fix",
+    "check": "limit",
+    "why": "Same story: a missing bound can only be tightened, so LIMIT 100 is added."
+  },
+  {
+    "id": "cvv",
+    "sql": "SELECT cvv FROM main.cards LIMIT 5",
+    "verdict": "block",
+    "check": "columns",
+    "why": "cvv is not an approved column. Leaving off the table alias does not help: unaliased columns are checked too."
+  },
+  {
+    "id": "delete",
+    "sql": "DELETE FROM main.transactions",
+    "verdict": "block",
+    "check": "select-only",
+    "why": "Only SELECT is allowed. This is a read-only assistant."
+  },
+  {
+    "id": "wildcard",
+    "sql": "SELECT * FROM main.users LIMIT 5",
+    "verdict": "block",
+    "check": "wildcard",
+    "why": "Wildcard projections could expose columns nobody approved."
+  },
+  {
+    "id": "source-table",
+    "sql": "SELECT t.amount FROM source.transactions AS t LIMIT 5",
+    "verdict": "block",
+    "check": "tables",
+    "why": "Only the approved main schema may be queried, never the private source tables."
+  },
+  {
+    "id": "big-limit",
+    "sql": "SELECT t.mcc FROM main.transactions AS t LIMIT 5000",
+    "verdict": "block",
+    "check": "limit",
+    "why": "An explicit limit above 100 is refused. Only a missing limit gets fixed."
+  },
+  {
+    "id": "two-statements",
+    "sql": "SELECT t.mcc FROM main.transactions AS t LIMIT 1; DROP TABLE main.cards",
+    "verdict": "block",
+    "check": "one-statement",
+    "why": "Exactly one statement is allowed, so a second one smuggled after a semicolon is rejected."
+  },
+  {
+    "id": "read-file",
+    "sql": "SELECT read_csv_auto('secrets.csv') AS x FROM main.cards AS c LIMIT 1",
+    "verdict": "block",
+    "check": "functions",
+    "why": "Only approved functions may be called, so reading a file from disk is refused."
+  }
+]

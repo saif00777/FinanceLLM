@@ -1,0 +1,187 @@
+{
+  "nodes": [
+    {
+      "id": "browser", "inGraph": false, "label": "You + your key", "kind": "edge", "x": 50, "row": 0,
+      "summary": "The landing page checks your OpenAI key, then opens the chat.",
+      "does": "You enter your own OpenAI key. The backend proves it works with two tiny real calls (chat model and embedding model) before you can launch. The key lives in this browser tab only.",
+      "never": "It is never written to disk or logs, and it is sent only as a request header to this app's backend.",
+      "uses": ["Browser session storage"],
+      "fact": "A malformed key is rejected before any network call is made."
+    },
+    {
+      "id": "api", "inGraph": false, "label": "FastAPI backend", "kind": "edge", "x": 50, "row": 1,
+      "summary": "Receives the question and streams progress back live.",
+      "does": "Scopes your key to just this request, runs the agent workflow, and streams every agent's decision to the page as it happens (server-sent events). A status endpoint shows it is alive.",
+      "never": "It never hands a database credential to any model.",
+      "uses": ["FastAPI", "Server-sent events"],
+      "fact": "Key checks are rate limited per client so the endpoint cannot be used to guess keys."
+    },
+    {
+      "id": "hard_guard", "inGraph": true, "label": "Hard guard", "kind": "guard", "x": 50, "row": 2,
+      "summary": "Blocks dangerous requests with plain rules, before any AI sees them.",
+      "does": "Deterministic pattern checks refuse requests for credentials or secrets, private source tables, file or URL fetches, instruction-bypass phrasing, and raw personal data.",
+      "never": "It never calls a model, so it cannot be talked out of a rule.",
+      "uses": ["Regex rules"],
+      "fact": "It runs first, so a blocked request costs nothing."
+    },
+    {
+      "id": "domain_guard", "inGraph": true, "label": "Domain guard", "kind": "llm", "x": 50, "row": 3,
+      "summary": "Decides if the question is in scope, and the only agent allowed to ask you to clarify.",
+      "does": "Reads the question with the business context and returns a route (in scope, clarify, or abstain) and which sources are needed: the transaction data, the bank documents, or both.",
+      "never": "No other agent may ask you a question. This is the single place clarification happens.",
+      "uses": ["OpenAI"],
+      "fact": "Vague questions like \"show me stuff\" stop here with a specific question back to you."
+    },
+    {
+      "id": "planner", "inGraph": true, "label": "Planner", "kind": "llm", "x": 50, "row": 4,
+      "summary": "Rewrites your question so every later agent understands it fully.",
+      "does": "Turns follow-ups like \"and for 2019\" into a complete standalone question, writes guidance for the SQL and analysis agents, and lists the assumptions it made.",
+      "never": "It never writes SQL. Its output guides every agent after it.",
+      "uses": ["OpenAI"],
+      "fact": "Its assumptions appear in the Assumptions tab of every answer."
+    },
+    {
+      "id": "document_router", "inGraph": true, "label": "Source router", "kind": "code", "x": 50, "row": 5,
+      "summary": "Sends the request to the data, the documents, or both.",
+      "does": "Translates the domain guard's source choice into active sources. Documents go first; the SQL branch then fans out into three parallel helpers.",
+      "never": "It does not guess: it only follows the classification already made.",
+      "uses": ["Plain code"],
+      "fact": "If no document store is configured, the document source is dropped here."
+    },
+    {
+      "id": "document_retrieval", "inGraph": true, "label": "Document search", "kind": "llm", "x": 86, "row": 6,
+      "summary": "Finds passages in the bank's documents and answers only from them.",
+      "does": "Searches with both your wording and the planner's rewrite, merges the best matches, then an agent writes the answer using only those excerpts and cites the documents it used.",
+      "never": "It never queries the transaction database and never answers from memory.",
+      "uses": ["OpenAI embeddings", "Qdrant vector store", "OpenAI"],
+      "fact": "Using two queries fixed a bug where a rewrite added the bank's name and pushed the right documents out."
+    },
+    {
+      "id": "schema_link", "inGraph": true, "label": "Schema linker", "kind": "code", "x": 20, "row": 7,
+      "summary": "Picks only the tables and columns that matter.",
+      "does": "Scores the approved schema against your question and shows the SQL agent just the relevant tables, keeping the prompt small and canonical.",
+      "never": "Only the approved catalog is ever shown, never raw source tables.",
+      "uses": ["Plain code", "Schema contract"],
+      "fact": "It runs at the same moment as its two sibling helpers."
+    },
+    {
+      "id": "metric_resolver", "inGraph": true, "label": "Metric resolver", "kind": "code", "x": 50, "row": 7,
+      "summary": "Maps words like \"spending\" to governed business metrics.",
+      "does": "Matches your wording against the governed metric definitions so a term means the same thing every time.",
+      "never": "A filler word like \"average\" alone cannot resolve a metric.",
+      "uses": ["Plain code", "Business glossary"],
+      "fact": "Governed metrics are defined once in the semantic layer."
+    },
+    {
+      "id": "mcc_resolver", "inGraph": true, "label": "Category matcher", "kind": "data", "x": 80, "row": 7,
+      "summary": "Understands that \"travel\" means airlines and hotels.",
+      "does": "Compares your question's meaning against 109 precomputed merchant-category descriptions and hands the closest matches to the SQL agent.",
+      "never": "The SQL agent still writes the query itself, so the policy check is unchanged.",
+      "uses": ["OpenAI embeddings", "Precomputed cache"],
+      "fact": "Real matches score around 0.4 to 0.6; unrelated pairs about 0.1."
+    },
+    {
+      "id": "sql_generator", "inGraph": true, "label": "SQL writer", "kind": "llm", "x": 50, "row": 8,
+      "summary": "Writes one read-only query.",
+      "does": "Uses the plan, the relevant schema, metric and category hints to write a single SELECT statement.",
+      "never": "It cannot ask you anything. Returning no SQL just counts as a failed attempt.",
+      "uses": ["OpenAI"],
+      "fact": "It gets at most two repair attempts if the policy rejects its query."
+    },
+    {
+      "id": "sql_policy", "inGraph": true, "label": "SQL policy gate", "kind": "guard", "x": 50, "row": 9,
+      "summary": "Parses the SQL and rejects anything outside the rules.",
+      "does": "Parses the query into a syntax tree and checks it: one statement, SELECT only, approved tables and columns only, no wildcards, an approved function list, and a row limit of 100 or fewer (added automatically if missing).",
+      "never": "A query that fails cannot run. It goes back to the writer with the reason.",
+      "uses": ["sqlglot"],
+      "fact": "Unaliased columns are checked too, so leaving off a table alias cannot sneak a column through."
+    },
+    {
+      "id": "executor", "inGraph": true, "label": "Executor", "kind": "code", "x": 50, "row": 10,
+      "summary": "Runs the approved query, once.",
+      "does": "Executes the validated query against MotherDuck and returns the rows.",
+      "never": "At most one query runs per request; a second attempt is refused as over budget.",
+      "uses": ["MotherDuck"],
+      "fact": "The model never receives database credentials."
+    },
+    {
+      "id": "data_analysis", "inGraph": true, "label": "Data analyst", "kind": "llm", "x": 28, "row": 11,
+      "summary": "Finds the insights and caveats in the numbers.",
+      "does": "Reads the result and writes a summary, insights and caveats in plain sentences.",
+      "never": "It only sees the rows the query returned.",
+      "uses": ["OpenAI"],
+      "fact": "It runs at the same time as the answer writer."
+    },
+    {
+      "id": "analyst", "inGraph": true, "label": "Answer writer", "kind": "llm", "x": 72, "row": 11,
+      "summary": "Writes the answer and picks a chart.",
+      "does": "Writes a short grounded answer and, when useful, a chart specification whose columns are checked against the real result.",
+      "never": "A chart that does not match the result columns is dropped.",
+      "uses": ["OpenAI"],
+      "fact": "Its answer is never allowed to be a raw data dump."
+    },
+    {
+      "id": "reviewer", "inGraph": true, "label": "Reviewer", "kind": "llm", "x": 50, "row": 12,
+      "summary": "Checks the answer against the actual rows.",
+      "does": "Re-checks that the answer and insights are grounded in the returned data before approving them.",
+      "never": "If it rejects the answer, you are asked for a narrower question instead of shown a shaky one.",
+      "uses": ["OpenAI"],
+      "fact": "It is the last check before an answer is shown."
+    },
+    {
+      "id": "merge_results", "inGraph": true, "label": "Merge", "kind": "code", "x": 50, "row": 13,
+      "summary": "Combines the data answer and the document answer.",
+      "does": "Whichever branches ran, the results are joined into the one final answer and route.",
+      "never": "It adds nothing new; it only combines.",
+      "uses": ["Plain code"],
+      "fact": "Every path except a refusal or clarification passes through here."
+    },
+    {
+      "id": "suggestions", "inGraph": true, "label": "Suggestions", "kind": "llm", "x": 50, "row": 14,
+      "summary": "Proposes the next questions worth asking.",
+      "does": "Reads the intent and the result's column names, never its rows, and suggests up to three follow-ups the catalog can answer.",
+      "never": "It never sees your data values.",
+      "uses": ["OpenAI"],
+      "fact": "If the model fails, simple rules provide the suggestions so the answer is never lost."
+    },
+    {
+      "id": "answer", "inGraph": false, "label": "Your answer", "kind": "edge", "x": 50, "row": 15,
+      "summary": "Answer, assumptions, chart, table and citations.",
+      "does": "The page shows the answer with tabs for the assumptions the bot made, a chart, and the result table, plus sources for any document answer.",
+      "never": "Nothing is shown that the reviewer did not approve.",
+      "uses": ["React"],
+      "fact": "The whole reasoning trail stays available under the answer."
+    }
+  ],
+  "edges": [
+    { "from": "browser", "to": "api", "external": true },
+    { "from": "api", "to": "hard_guard", "external": true },
+    { "from": "hard_guard", "to": "domain_guard", "label": "allowed" },
+    { "from": "hard_guard", "to": "suggestions", "label": "blocked", "kind": "stop" },
+    { "from": "domain_guard", "to": "planner", "label": "in scope" },
+    { "from": "domain_guard", "to": "suggestions", "label": "clarify / abstain", "kind": "stop" },
+    { "from": "planner", "to": "document_router" },
+    { "from": "document_router", "to": "document_retrieval", "label": "documents" },
+    { "from": "document_router", "to": "schema_link", "label": "data" },
+    { "from": "document_router", "to": "metric_resolver" },
+    { "from": "document_router", "to": "mcc_resolver" },
+    { "from": "document_retrieval", "to": "schema_link", "label": "both" },
+    { "from": "document_retrieval", "to": "metric_resolver" },
+    { "from": "document_retrieval", "to": "mcc_resolver" },
+    { "from": "document_retrieval", "to": "merge_results", "label": "documents only" },
+    { "from": "schema_link", "to": "sql_generator" },
+    { "from": "metric_resolver", "to": "sql_generator" },
+    { "from": "mcc_resolver", "to": "sql_generator" },
+    { "from": "sql_generator", "to": "sql_policy" },
+    { "from": "sql_policy", "to": "executor", "label": "approved" },
+    { "from": "sql_policy", "to": "sql_generator", "label": "repair (max 2)", "kind": "loop" },
+    { "from": "sql_policy", "to": "merge_results", "label": "gave up", "kind": "stop" },
+    { "from": "executor", "to": "data_analysis" },
+    { "from": "executor", "to": "analyst" },
+    { "from": "data_analysis", "to": "reviewer" },
+    { "from": "analyst", "to": "reviewer" },
+    { "from": "reviewer", "to": "merge_results" },
+    { "from": "merge_results", "to": "suggestions" },
+    { "from": "suggestions", "to": "answer", "external": true }
+  ]
+}
