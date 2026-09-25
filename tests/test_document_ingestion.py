@@ -66,6 +66,8 @@ class LoadCorpusTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate"):
                 load_corpus(Path(directory))
 
+    # The corpus is data kept out of the repository (see .gitignore); skip rather than fail on a checkout without it.
+    @unittest.skipUnless((ROOT / "larkspur_ridge_bank_corpus" / "manifest.csv").is_file(), "larkspur_ridge_bank_corpus/ is not present")
     def test_the_real_larkspur_corpus_loads_completely(self):
         documents = load_corpus(ROOT / "larkspur_ridge_bank_corpus")
         self.assertEqual(len(documents), 50)
