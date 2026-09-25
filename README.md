@@ -117,7 +117,7 @@ Optional:
 - `OPEN_AI_EMBEDDING_MODEL`: enables merchant-category matching, and the document branch together with Qdrant.
 - `QDRANT_API_URL` and `QDRANT_API_KEY` (set together): enable the document branch.
 - `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` (set together): redacted observability. `LANGFUSE_BASE_URL` and `LANGFUSE_VERBOSE_TRACING` are standalone options.
-- `CORS_ALLOWED_ORIGINS`: comma-separated; defaults to the local dev origins.
+- `CORS_ALLOWED_ORIGINS`: the frontend origins allowed to call the API, comma-separated (for example `https://your-app.vercel.app`). Defaults to the local dev origins. Quotes, spaces and a trailing slash are ignored. An entry may use `*` for preview deployments, such as `https://your-app-*.vercel.app`; a bare `*` is not accepted. The effective value is logged at startup.
 
 ## Run locally
 

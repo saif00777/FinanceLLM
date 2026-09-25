@@ -2,7 +2,9 @@
 
 from datetime import datetime, timezone
 import json
+import logging
 from os import environ
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -37,11 +39,20 @@ ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_DEV_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173")
 
 
-def _cors_origins() -> list[str]:
-    configured = (environ.get("CORS_ALLOWED_ORIGINS") or "").strip()
-    if configured:
-        return [origin.strip() for origin in configured.split(",") if origin.strip()]
-    return list(_DEFAULT_DEV_ORIGINS)
+def _parse_cors_origins(raw: str | None) -> tuple[list[str], str | None]:
+    """Turns CORS_ALLOWED_ORIGINS into (exact origins, regex for wildcard entries).
+
+    Matching is exact, so harmless slips (surrounding quotes, whitespace, a trailing slash) are forgiven rather than
+    silently blocking every request. An entry containing `*` is a pattern where each `*` stands for one or more of
+    [a-z0-9-] (e.g. `https://finance-llm-*.vercel.app` for preview deployments); scheme and host must still match in
+    full. A bare `*` (allow every site) is deliberately not accepted. With nothing usable it falls back to local dev."""
+    entries = [item.strip().strip("\"'").strip().rstrip("/") for item in (raw or "").split(",")]
+    entries = list(dict.fromkeys(item for item in entries if item and item != "*"))
+    if not entries:
+        return list(_DEFAULT_DEV_ORIGINS), None
+    exact = [item for item in entries if "*" not in item]
+    patterns = [re.escape(item).replace(r"\*", "[a-z0-9-]+") for item in entries if "*" in item]
+    return exact, ("|".join(patterns) if patterns else None)
 
 
 SERVICE_NAME = "Financial Multi-Agent Text-to-SQL"
@@ -191,9 +202,12 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title=SERVICE_NAME, version=SERVICE_VERSION)
     started_at = clock()
+    allowed_origins, allowed_origin_pattern = _parse_cors_origins(environ.get("CORS_ALLOWED_ORIGINS"))
+    logging.getLogger("uvicorn.error").info("CORS allowed origins: %s; wildcard pattern: %s", allowed_origins, allowed_origin_pattern)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_cors_origins(),
+        allow_origins=allowed_origins,
+        allow_origin_regex=allowed_origin_pattern,
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type", "X-OpenAI-Key"],
     )
