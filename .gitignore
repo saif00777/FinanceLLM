@@ -7,14 +7,20 @@ __pycache__/
 !.env.example
 .motherduck-staging/
 
-.complaints-rag-checkpoint.json
-.complaints-rag-upload.log
-.complaints-rag-upload.error.log
+ingestion/
+docs/
+PROGRESS.md
+CLAUDE.md
+AGENTS.md
+larkspur_ridge_bank_corpus/
+
+# Holds real Langfuse credentials for the local langfuse-mcp server (same trust boundary as .env).
+.mcp.json
 
 # Raw import-lineage datasets (MotherDuck is the runtime source of truth; see context/README.md) — too large for git.
 FinancialTransactionsDataset/
-consumerComplaints/*.csv
-consumerComplaints/*.sqlite
+consumerComplaints/
+consumerComplaints/
 
 # Vendored Superpowers skill tooling, not this project's code.
 .claude/skills/
@@ -22,3 +28,27 @@ consumerComplaints/*.sqlite
 
 # Local git worktrees used for isolated plan execution.
 .worktrees/
+
+# Frontend build output and dependencies (frontend/.gitignore also covers these; kept here so a root-level check is enough).
+node_modules/
+frontend/dist/
+
+# Machine-specific local tooling: absolute paths and the port-8001 workaround in launch.json; per-user Claude settings.
+.claude/launch.json
+.claude/settings.local.json
+
+# Scratch space for one-off profiling scripts and throwaway output.
+tmp/
+
+# Tool caches and editor folders.
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.idea/
+.vscode/
+.DS_Store
+
+# Local working notes for the assistant: session log and project instructions. Kept on disk, not in the repository.
+PROGRESS.md
+CLAUDE.md
