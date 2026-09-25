@@ -1,4 +1,4 @@
-"""Durable, TTL-bound conversation state with safe fact persistence."""
+"""TTL-bound, in-memory conversation state with safe fact handling."""
 
 from __future__ import annotations
 
@@ -80,25 +80,17 @@ class ConversationFacts(dict[str, Any]):
     def semantic_version(self) -> str | None:
         return self["semantic_version"]
 
-    @classmethod
-    def from_storage(cls, row: Mapping[str, Any] | None, semantic_version: str | None) -> "ConversationFacts":
-        row = row or {}
-        return cls(
-            resolved_metric=row.get("resolved_metric"),
-            resolved_filters=row.get("filters") or {},
-            selected_relation_ids=row.get("selected_relations") or (),
-            last_sql_hash=row.get("last_sql_hash"),
-            result_digest=row.get("result_digest"),
-            semantic_version=semantic_version,
-        ).sanitized()
-
     def sanitized(self) -> "ConversationFacts":
+        # Drop rather than raise on an unsafe entry: resolved_filters keys/values originate
+        # from plan() (LLM output that only type-checks values, never key names), so a filter
+        # key that happens to collide with a forbidden name must not crash an otherwise
+        # successfully-computed answer at this last, purely-persistence step.
         filters: dict[str, str | int | float | bool | None] = {}
         for key, value in self.resolved_filters.items():
             if key.lower() in _FORBIDDEN_FILTER_KEYS:
-                raise ValueError(f"Unsafe conversation fact key: {key}")
+                continue
             if not isinstance(value, (str, int, float, bool, type(None))):
-                raise ValueError(f"Conversation fact values must be scalar: {key}")
+                continue
             filters[str(key)] = _redact_scalar(value)
         relations = tuple(_safe_text(value, "relation") for value in self.selected_relation_ids)
         return ConversationFacts(
@@ -110,17 +102,6 @@ class ConversationFacts(dict[str, Any]):
             semantic_version=_safe_optional_text(self.semantic_version, "semantic_version"),
         )
 
-    def storage_payload(self, conversation_id: str, expires_at: datetime) -> dict[str, Any]:
-        safe = self.sanitized()
-        return {
-            "conversation_id": conversation_id,
-            "resolved_metric": safe.resolved_metric,
-            "filters": safe.resolved_filters,
-            "selected_relations": list(safe.selected_relation_ids),
-            "last_sql_hash": safe.last_sql_hash,
-            "result_digest": safe.result_digest,
-            "expires_at": expires_at.isoformat(),
-        }
 
 
 def _safe_text(value: Any, label: str) -> str:
@@ -207,81 +188,3 @@ class InMemoryConversationStore:
         updated = replace(context, facts=facts.sanitized(), expires_at=self._clock() + self._ttl)
         self._contexts[updated.id] = updated
         return updated
-
-
-class SupabaseConversationStore:
-    """Supabase-backed store. The caller supplies a server-only authenticated client."""
-
-    def __init__(self, client: Any, ttl_seconds: int = 1800):
-        self._client = client
-        self._ttl = timedelta(seconds=ttl_seconds)
-
-    @staticmethod
-    def _now() -> datetime:
-        return datetime.now(timezone.utc)
-
-    def _new(self, conversation_id: str | None = None) -> ConversationContext:
-        return ConversationContext(
-            id=conversation_id or str(uuid4()),
-            turns=(),
-            expires_at=self._now() + self._ttl,
-            facts=ConversationFacts(),
-        )
-
-    def load(self, conversation_id: str | None) -> ConversationContext:
-        if not conversation_id:
-            return self._new()
-        response = self._client.table("conversations").select("id, expires_at, semantic_version").eq("id", conversation_id).execute()
-        rows = getattr(response, "data", []) or []
-        if not rows:
-            return self._new(conversation_id)
-        expires_at = datetime.fromisoformat(rows[0]["expires_at"].replace("Z", "+00:00"))
-        if expires_at <= self._now():
-            return self._new(conversation_id)
-        message_response = (
-            self._client.table("messages")
-            .select("role, content, created_at")
-            .eq("conversation_id", conversation_id)
-            .order("created_at")
-            .limit(6)
-            .execute()
-        )
-        turns = tuple(
-            ConversationTurn(
-                role=row["role"], content=row["content"],
-                created_at=datetime.fromisoformat(row["created_at"].replace("Z", "+00:00")),
-            )
-            for row in (getattr(message_response, "data", []) or [])
-        )
-        facts_response = (
-            self._client.table("conversation_facts")
-            .select("resolved_metric, filters, selected_relations, last_sql_hash, result_digest")
-            .eq("conversation_id", conversation_id)
-            .execute()
-        )
-        fact_rows = getattr(facts_response, "data", []) or []
-        facts = ConversationFacts.from_storage(fact_rows[0] if fact_rows else None, rows[0].get("semantic_version"))
-        return ConversationContext(id=conversation_id, turns=turns, expires_at=expires_at, facts=facts)
-
-    def append(self, context: ConversationContext, turn: ConversationTurn) -> ConversationContext:
-        now = self._now()
-        expires_at = now + self._ttl
-        self._client.table("conversations").upsert(
-            {"id": context.id, "expires_at": expires_at.isoformat()}
-        ).execute()
-        self._client.table("messages").insert(
-            {"conversation_id": context.id, "role": turn.role, "content": _redact_turn_text(turn.content), "created_at": now.isoformat()}
-        ).execute()
-        safe_turn = replace(turn, content=_redact_turn_text(turn.content), created_at=now)
-        return replace(context, turns=(*context.turns, safe_turn)[-6:], expires_at=expires_at)
-
-    def update_facts(self, context: ConversationContext, facts: ConversationFacts) -> ConversationContext:
-        now = self._now()
-        expires_at = now + self._ttl
-        safe = facts.sanitized()
-        conversation_payload = {"id": context.id, "expires_at": expires_at.isoformat()}
-        if safe.semantic_version:
-            conversation_payload["semantic_version"] = safe.semantic_version
-        self._client.table("conversations").upsert(conversation_payload).execute()
-        self._client.table("conversation_facts").upsert(safe.storage_payload(context.id, expires_at)).execute()
-        return replace(context, facts=safe, expires_at=expires_at)

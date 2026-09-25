@@ -9,11 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ConfigurationTests(unittest.TestCase):
-    def test_configuration_prefers_project_open_ai_key(self):
+    def test_configuration_uses_only_the_project_open_ai_key(self):
         config = AppConfig.from_environment(
             {
                 "OPEN_AI_KEY": "project-key",
-                "OPENAI_API_KEY": "fallback-key",
+                "OPENAI_API_KEY": "system-wide-key",
                 "OPEN_AI_MODEL": "gpt-4o",
                 "MOTHERDUCK_TOKEN": "motherduck-key",
             }
@@ -21,16 +21,18 @@ class ConfigurationTests(unittest.TestCase):
 
         self.assertEqual(config.openai_api_key, "project-key")
 
-    def test_configuration_uses_conventional_openai_fallback(self):
+    def test_the_generic_openai_api_key_variable_is_ignored(self):
+        # A machine-wide OPENAI_API_KEY (used by other tools) must never become this server's key: users bring
+        # their own key, and a stale system variable silently used instead is worse than a clear 401.
         config = AppConfig.from_environment(
             {
-                "OPENAI_API_KEY": "fallback-key",
+                "OPENAI_API_KEY": "system-wide-key",
                 "OPEN_AI_MODEL": "gpt-4o",
                 "MOTHERDUCK_TOKEN": "motherduck-key",
             }
         )
 
-        self.assertEqual(config.openai_api_key, "fallback-key")
+        self.assertIsNone(config.openai_api_key)
 
     def test_configuration_rejects_missing_required_value(self):
         with self.assertRaisesRegex(ConfigurationError, "OPEN_AI_MODEL"):

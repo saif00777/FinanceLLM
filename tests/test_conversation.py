@@ -5,7 +5,6 @@ from app.helpers.conversation import (
     ConversationFacts,
     ConversationTurn,
     InMemoryConversationStore,
-    SupabaseConversationStore,
 )
 
 
@@ -68,83 +67,28 @@ class ConversationStoreTests(unittest.TestCase):
         self.assertEqual(loaded.facts.result_digest, "b" * 64)
         self.assertEqual(loaded.facts.semantic_version, "2.0.0")
 
-    def test_store_rejects_result_rows_as_facts(self):
+    def test_store_drops_a_raw_rows_filter_instead_of_persisting_it(self):
         context = self.store.load(None)
-        facts = ConversationFacts(resolved_filters={"rows": [["secret"]]})
+        facts = ConversationFacts(resolved_filters={"rows": [["secret"]], "year": 2019})
 
-        with self.assertRaises(ValueError):
-            self.store.update_facts(context, facts)
+        updated = self.store.update_facts(context, facts)
 
+        self.assertNotIn("rows", updated.facts.resolved_filters)
+        self.assertEqual(updated.facts.resolved_filters["year"], 2019)
 
-class _Response:
-    def __init__(self, data):
-        self.data = data
+    def test_store_drops_a_forbidden_filter_key_even_with_an_otherwise_safe_scalar_value(self):
+        # Regression: plan() only type-checks resolved_filters *values*, never key names, so a
+        # question that happens to make the model name a filter "content" (a legitimate short
+        # string, not a data dump) must not crash the whole request at the persistence step —
+        # the answer was already successfully computed by this point.
+        context = self.store.load(None)
+        facts = ConversationFacts(resolved_filters={"content": "checking accounts", "year": 2019})
 
+        updated = self.store.update_facts(context, facts)
 
-class _Table:
-    def __init__(self, client, name):
-        self.client = client
-        self.name = name
+        self.assertNotIn("content", updated.facts.resolved_filters)
+        self.assertEqual(updated.facts.resolved_filters["year"], 2019)
 
-    def select(self, *_columns):
-        return self
-
-    def eq(self, *_args):
-        return self
-
-    def order(self, *_args):
-        return self
-
-    def limit(self, *_args):
-        return self
-
-    def upsert(self, payload):
-        self.client.writes.append((self.name, payload))
-        return self
-
-    def insert(self, payload):
-        self.client.writes.append((self.name, payload))
-        return self
-
-    def execute(self):
-        return _Response(self.client.reads.get(self.name, []))
-
-
-class _SupabaseClient:
-    def __init__(self, reads=None):
-        self.reads = reads or {}
-        self.writes = []
-
-    def table(self, name):
-        return _Table(self, name)
-
-
-class SupabaseConversationStoreTests(unittest.TestCase):
-    def test_loads_and_writes_structured_facts_without_raw_rows(self):
-        expires_at = "2027-09-18T00:00:00+00:00"
-        client = _SupabaseClient(
-            {
-                "conversations": [{"id": "session", "expires_at": expires_at, "semantic_version": "2.0.0"}],
-                "messages": [],
-                "conversation_facts": [{
-                    "resolved_metric": "Recorded transaction count",
-                    "filters": {"year": 2019},
-                    "selected_relations": ["main.transactions"],
-                    "last_sql_hash": "c" * 64,
-                    "result_digest": "d" * 64,
-                }],
-            }
-        )
-        store = SupabaseConversationStore(client)
-
-        loaded = store.load("session")
-        updated = store.update_facts(loaded, loaded.facts)
-
-        self.assertEqual(updated.facts.semantic_version, "2.0.0")
-        fact_write = next(payload for table, payload in client.writes if table == "conversation_facts")
-        self.assertEqual(fact_write["filters"], {"year": 2019})
-        self.assertNotIn("rows", fact_write)
-        self.assertNotIn("sql", fact_write)
 
 
 if __name__ == "__main__":

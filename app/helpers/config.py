@@ -29,20 +29,23 @@ def _optional_pair(values: Mapping[str, str], first: str, second: str) -> tuple[
 class AppConfig:
     """Secrets and model selection held by the backend process only."""
 
-    openai_api_key: str
     openai_model: str
     motherduck_token: str
-    supabase_url: str | None = None
-    supabase_key: str | None = None
+    # Only a fallback: chat users bring their own key (X-OpenAI-Key). None means requests without one get a 401.
+    openai_api_key: str | None = None
     qdrant_api_url: str | None = None
     qdrant_api_key: str | None = None
     openai_embedding_model: str | None = None
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
+    langfuse_host: str | None = None
+    langfuse_verbose_tracing: bool = False
 
-    @property
-    def supabase_enabled(self) -> bool:
-        return self.supabase_url is not None
+    def require_openai_api_key(self) -> str:
+        """For offline admin scripts that call OpenAI themselves (there is no request to bring a key)."""
+        if not self.openai_api_key:
+            raise ConfigurationError("OPEN_AI_KEY must be set to run this script")
+        return self.openai_api_key
 
     @property
     def qdrant_enabled(self) -> bool:
@@ -55,21 +58,24 @@ class AppConfig:
     @classmethod
     def from_environment(cls, values: Mapping[str, str] | None = None) -> "AppConfig":
         values = environ if values is None else values
-        supabase_url, supabase_key = _optional_pair(values, "SUPABASE_URL", "SUPABASE_KEY")
         qdrant_api_url, qdrant_api_key = _optional_pair(values, "QDRANT_API_URL", "QDRANT_API_KEY")
         langfuse_public_key, langfuse_secret_key = _optional_pair(values, "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY")
+        langfuse_host = (values.get("LANGFUSE_BASE_URL") or "").strip() or None
+        langfuse_verbose_tracing = (values.get("LANGFUSE_VERBOSE_TRACING") or "").strip().lower() in ("true", "1", "yes")
         embedding_model = (values.get("OPEN_AI_EMBEDDING_MODEL") or "").strip() or None
         if qdrant_api_url and not embedding_model:
             raise ConfigurationError("OPEN_AI_EMBEDDING_MODEL is required when Qdrant is configured")
         return cls(
-            openai_api_key=_required(values, "OPEN_AI_KEY", fallback="OPENAI_API_KEY"),
+            # Only OPEN_AI_KEY. The generic OPENAI_API_KEY is deliberately ignored: it is often a machine-wide variable
+            # for other tools, and silently using a stale one would replace a clear "enter your key" with an OpenAI 401.
+            openai_api_key=(values.get("OPEN_AI_KEY") or "").strip() or None,
             openai_model=_required(values, "OPEN_AI_MODEL"),
             motherduck_token=_required(values, "MOTHERDUCK_TOKEN"),
-            supabase_url=supabase_url,
-            supabase_key=supabase_key,
             qdrant_api_url=qdrant_api_url,
             qdrant_api_key=qdrant_api_key,
             openai_embedding_model=embedding_model,
             langfuse_public_key=langfuse_public_key,
             langfuse_secret_key=langfuse_secret_key,
+            langfuse_host=langfuse_host,
+            langfuse_verbose_tracing=langfuse_verbose_tracing,
         )
