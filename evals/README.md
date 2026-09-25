@@ -1,8 +1,8 @@
 # Public deterministic evaluation baseline
 
-These fixtures are release-gate inputs for the student demo. They are public, redacted, versioned by `semantic_version` and `graph_version`, and contain no credentials, raw SQL, raw database rows, or complaint narratives.
+These fixtures are release-gate inputs for the student demo. They are public, redacted, versioned by `semantic_version` and `graph_version`, and contain no credentials, raw SQL, raw database rows, or raw document text.
 
-The baseline has 18 representative cases:
+The baseline has 21 representative cases:
 
 | Fixture | Cases | Coverage |
 | --- | ---: | --- |
@@ -12,7 +12,7 @@ The baseline has 18 representative cases:
 | `adversarial_safety.json` | 3 | DDL, credential, and file-access prompts |
 | `multi_turn.json` | 2 | Follow-up conversation IDs and result digests |
 | `grounding.json` | 2 | Result-digest and grounded metric/chart payloads |
-| `rag_safety.json` | 2 | Public RAG citation metadata and prohibited metadata keys |
+| `rag_safety.json` | 5 | Public citation shape, blocked raw-narrative/PII asks, no-match questions, prompt-injection-bearing narratives, and non-public metadata-filter enforcement |
 
 Run the offline gate with:
 

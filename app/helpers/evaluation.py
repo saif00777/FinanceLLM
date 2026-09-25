@@ -1,7 +1,7 @@
 """Deterministic, offline release-gate evaluation helpers.
 
 Fixture cases are public and must never contain credentials, raw SQL, raw result rows,
-or unredacted complaint narratives. The evaluator accepts workflow result objects or
+or raw document text. The evaluator accepts workflow result objects or
 mappings so it can exercise deterministic fakes without network access.
 """
 

@@ -26,12 +26,14 @@ class SqlPolicy:
     allowed_functions = {
         "ABS",
         "AVG",
+        "CASE",
         "CAST",
         "CEIL",
         "COALESCE",
         "COUNT",
         "EXTRACT",
         "FLOOR",
+        "IF",
         "LOWER",
         "MAX",
         "MIN",
@@ -78,6 +80,26 @@ class SqlPolicy:
         self._validate_limit(expression)
         return expression.sql(dialect="duckdb")
 
+    @staticmethod
+    def relations_used(sql: str) -> tuple[str, ...]:
+        """Schema-qualified relations a query references (CTE names excluded), each once, in no guaranteed order.
+
+        Lets conversation memory record what an answer was actually about rather than every
+        table the schema linker merely considered."""
+        try:
+            expression = sqlglot.parse_one(sql, read="duckdb")
+        except sqlglot.errors.ParseError:
+            return ()
+        cte_names = {cte.alias_or_name.lower() for cte in expression.find_all(exp.CTE) if cte.alias_or_name}
+        used: list[str] = []
+        for table in expression.find_all(exp.Table):
+            if not table.db and table.name.lower() in cte_names:
+                continue
+            relation = f"{table.db}.{table.name}".lower() if table.db else table.name.lower()
+            if relation not in used:
+                used.append(relation)
+        return tuple(used)
+
     def _validate_tables(self, expression: exp.Expression) -> tuple[dict[str, set[str]], set[str]]:
         cte_names = {
             cte.alias_or_name.lower()
@@ -105,8 +127,18 @@ class SqlPolicy:
     def _validate_columns(
         expression: exp.Expression, aliases: dict[str, set[str]], cte_names: set[str]
     ) -> None:
+        # A column written without a table alias must still be an allowlisted column of a table in the query, or
+        # an alias the query itself defines (e.g. `GROUP BY year ORDER BY total`). Skipping unqualified columns
+        # would let a non-allowlisted one (cvv, card_number) through just by leaving off the alias.
+        defined_aliases = {alias.alias.lower() for alias in expression.find_all(exp.Alias) if alias.alias}
+        table_columns = {name.lower() for columns in aliases.values() for name in columns}
         for column in expression.find_all(exp.Column):
-            if isinstance(column.this, exp.Star) or not column.table:
+            if isinstance(column.this, exp.Star):
+                continue
+            if not column.table:
+                name = column.name.lower()
+                if name not in defined_aliases and name not in table_columns:
+                    raise SqlPolicyError(f"Column is not in the allowed column list: {column.sql()}")
                 continue
             table_alias = column.table.lower()
             if table_alias in cte_names:
@@ -138,9 +170,11 @@ class SqlPolicy:
     def _validate_limit(self, expression: exp.Select) -> None:
         limit = expression.args.get("limit")
         if limit is None:
-            if self._is_scalar_aggregate(expression):
-                return
-            raise SqlPolicyError(f"A LIMIT between 1 and {self.maximum_limit} is required")
+            if not self._is_scalar_aggregate(expression):
+                # A missing limit can only be bounded, never widened, so it is normalized instead of rejected: the
+                # model often omitted it on GROUP BY queries and repeated the same SQL on every repair.
+                expression.limit(self.maximum_limit, copy=False)
+            return
         value = limit.expression
         if not isinstance(value, exp.Literal) or not value.is_int:
             raise SqlPolicyError(f"A numeric LIMIT between 1 and {self.maximum_limit} is required")
