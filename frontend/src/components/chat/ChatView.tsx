@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { PanelLeftIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useSidebar } from "@/components/ui/sidebar";
 import { AssistantMessage } from "@/components/chat/AssistantMessage";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -31,6 +32,9 @@ export function ChatView({
           <PanelLeftIcon aria-hidden="true" className="size-4" />
         </Button>
         <span className="text-sm font-medium">Financial Assistant</span>
+        <div className="ml-auto">
+          <ThemeToggle />
+        </div>
       </header>
 
       {messages.length === 0 ? (

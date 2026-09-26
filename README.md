@@ -91,7 +91,7 @@ Conversation state (the last few questions and the tables the approved SQL actua
 `frontend/` is a Vite + React + TypeScript + Tailwind + shadcn/ui app with three pages:
 
 - `/`: the landing page that tests your OpenAI key before launch.
-- `/chat`: the streaming chat, with live agent thoughts and Answer / Assumptions / Chart / Table tabs.
+- `/chat`: the streaming chat, with live agent thoughts and Answer / Assumptions / Chart / Table tabs. A Light / Dark / System toggle in the header sets the theme (System follows the operating system live, and the choice is remembered); charts, tables and the rest of the chat follow it. The landing page and the explainer are deliberately always dark.
 - `/architecture`: an interactive, animated explainer of this very design: hover a component to light up its connections, watch a question travel through the graph with play, pause, step and scrub controls, and see a query checked rule by rule by the SQL gate. Its data files (`frontend/src/data/*.json`) are pinned to the real workflow graph and `SqlPolicy` by `tests/test_architecture_data.py`, so it cannot drift from the code.
 
 ### Endpoints

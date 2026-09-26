@@ -7,6 +7,18 @@
     <meta name="description" content="Ask questions about financial transactions and bank documents, and watch a multi-agent assistant work it out." />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Financial Assistant</title>
+    <script>
+      // Apply the saved (or system) theme before first paint so the page never flashes the wrong one.
+      // Keep in step with src/lib/theme.ts (storage key and the light/dark/system rules).
+      try {
+        var saved = localStorage.getItem("financial-assistant.theme");
+        var dark = saved === "dark" || (saved !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", dark ? "#0a0a0a" : "#ffffff");
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
