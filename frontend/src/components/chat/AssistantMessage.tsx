@@ -1,5 +1,5 @@
 import { AlertCircleIcon } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AssistantAvatar } from "@/components/chat/AssistantAvatar";
 import { Separator } from "@/components/ui/separator";
 import { ProgressTree } from "@/components/chat/ProgressTree";
 import { ResultTabs } from "@/components/chat/ResultTabs";
@@ -21,9 +21,7 @@ export function AssistantMessage({
 
   return (
     <div className="flex items-start gap-3">
-      <Avatar className="mt-0.5 size-8 shrink-0">
-        <AvatarFallback className="bg-primary text-primary-foreground text-xs">AI</AvatarFallback>
-      </Avatar>
+      <AssistantAvatar thinking={isStreaming} />
       <div className="min-w-0 flex-1 space-y-3">
         {isStreaming ? (
           <ProgressTree steps={progress} isStreaming />
